@@ -573,7 +573,8 @@ FontGroup:AddLabel('Font family'):AddDropdown('Style_FontName', {
     Default = Library.FontName,
     Callback = function(Value)
         Library.FontName = Value
-        Library.Font = Enum[Value] or Enum.Font.Code
+        local ok, fontEnum = pcall(function() return Enum.Font[Value] end)
+        Library.Font = ok and fontEnum or Enum.Font.Code
         Library:UpdateFonts()
     end,
 })

@@ -542,6 +542,10 @@ end;
 -- Text sizes scale relative to the library base size so that the layout stays intact.
 function Library:UpdateFonts()
     local Font = Library.Font or Enum.Font.Code;
+
+    if typeof(Font) ~= 'EnumItem' then
+        Font = Enum.Font.Code;
+    end;
     local Size = Library.FontSize or 14;
     local Base = Library.BaseFontSize or 14;
     local Scale = Size / Base;
