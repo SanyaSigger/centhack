@@ -209,7 +209,8 @@ local ThemeManager = {} do
 
 		groupbox:AddDivider()
 
-		groupbox:AddLabel('Background image'):AddInput('ThemeManager_BackgroundImage', {
+		groupbox:AddLabel('Background image')
+		groupbox:AddInput('ThemeManager_BackgroundImage', {
 			Text = 'Image ID (rbxassetid://...)';
 			Default = self.Library.BackgroundImage;
 		});
