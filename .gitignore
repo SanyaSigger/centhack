@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Directories created by the library at runtime
+LinoriaLibSettings/
+settings/
+themes/
+
+# Generated config files
+*.cfg
+*.json
+
+# Logs
+*.log
+
+# Roblox place files
+*.rbxlx
+*.rbxl
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build output
+build/
+dist/
