@@ -562,7 +562,7 @@ local FontGroup = TabStyle:AddRightGroupbox('Typography & Background')
 FontGroup:AddLabel('Font family'):AddDropdown('Style_FontName', {
     Text = 'Font',
     Values = {
-        'Code', 'Arial', 'Gotham', 'GothamBold', 'GothamSemibold',
+        'Code', 'Arial', 'Gotham',
         'SourceSans', 'Antique', 'Arcade', 'Bangers', 'Cartoon',
         'Creepster', 'Fantasy', 'Garamond', 'IndieFlower', 'JosefinSans',
         'Jura', 'Kalam', 'LuckiestGuy', 'Merriweather', 'Michroma',

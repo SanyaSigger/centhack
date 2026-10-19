@@ -195,7 +195,7 @@ local ThemeManager = {} do
 		groupbox:AddLabel('Font name')
 		groupbox:AddDropdown('ThemeManager_FontName', {
 			Text = 'Font';
-			Values = { 'Code', 'Arial', 'Gotham', 'GothamBold', 'GothamSemibold', 'GothamMedium', 'SourceSans', 'SourceSansBold', 'SourceSansSemibold', 'SourceSansLight', 'SourceSansItalic', 'SourceSansBoldItalic', 'Antique', 'Arcade', 'Bangers', 'Cartoon', 'Creepster', 'Fantasy', 'Garamond', 'IndieFlower', 'JosefinSans', 'Jura', 'Kalam', 'LuckiestGuy', 'Merriweather', 'Michroma', 'Nunito', 'Oswald', 'PatrickHand', 'PermanentMarker', 'Roboto', 'RobotoCondensed', 'RobotoMono', 'Sarpanch', 'SpecialElite', 'Ubuntu', 'World', };
+			Values = { 'Code', 'Arial', 'Gotham', 'SourceSans', 'Antique', 'Arcade', 'Bangers', 'Cartoon', 'Creepster', 'Fantasy', 'Garamond', 'IndieFlower', 'JosefinSans', 'Jura', 'Kalam', 'LuckiestGuy', 'Merriweather', 'Michroma', 'Nunito', 'Oswald', 'PatrickHand', 'PermanentMarker', 'Roboto', 'RobotoCondensed', 'RobotoMono', 'Sarpanch', 'SpecialElite', 'Ubuntu', 'World', };
 			Default = self.Library.FontName or 'Code';
 		});
 
