@@ -86,8 +86,8 @@ local USE_LOCAL_FILES = false
 
 -- GitHub repo used when `USE_LOCAL_FILES` is false.
 -- REPLACE THIS WITH YOUR OWN REPO:
---   e.g. 'https://raw.githubusercontent.com/SanyaSigger/centhack/main/UI/'
-local REPO = 'https://raw.githubusercontent.com/SanyaSigger/centhack/main/UI/'
+--   e.g. 'https://raw.githubusercontent.com/SanyaSigger/centhack/main/linoria-src/'
+local REPO = 'https://raw.githubusercontent.com/SanyaSigger/centhack/main/linoria-src/'
 
 -- Folder where configs, themes, and settings are stored on disk.
 local STORAGE_FOLDER = 'LinoriaLibExample'
