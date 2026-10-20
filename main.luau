@@ -26,14 +26,17 @@
 --   Adds a tab inside the tabbox.
 --
 -- Groupbox:AddLabel(Text: string, DoesWrap: bool?)
+--   Adds a text label. Use Library:CreateLabel({ TextColor3: Color3 }) for color.
 --   Adds a text label.
 --
 -- Groupbox:AddToggle(Idx: string, { Text: string, Default: bool, Callback: function })
 --   -> Toggle (has :SetValue(bool), :OnChanged(function))
+--   TextColor: Toggle.TextLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+--   -> Toggle (has :SetValue(bool), :OnChanged(function))
 --
 -- Groupbox:AddSlider(Idx: string, { Text: string, Default: number, Min: number,
 --   Max: number, Rounding: number, Suffix: string, Callback: function(number) })
---   -> Slider
+--   -> Slider (TextColor: Slider.TextLabel.TextColor3 = Color3.fromRGB(255, 0, 0))
 --
 -- Groupbox:AddDropdown(Idx: string, { Text: string, Values: table, Default: any,
 --   AllowNull: bool, Callback: function(any) })
@@ -58,11 +61,14 @@
 -- Groupbox:AddColorPicker(Idx: string, { Default: Color3, Transparency: number,
 --   Title: string, Callback: function(Color3) })
 --   -> ColorPicker (has :SetValueRGB(Color3))
+--   TextColor: ColorPicker.TextLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
 --
 -- Label:AddColorPicker(Idx, {...}) / Toggle:AddColorPicker(Idx, {...})
 --   Adds a color picker on a Label or Toggle.
 --
 -- Toggle:AddKeyPicker(Idx: string, { Text: string, Default: string, Callback: function })
+--   -> KeyPicker
+--   TextColor: KeyPicker.TextLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
 --   -> KeyPicker
 -- Label:AddKeyPicker(Idx, {...})
 --
@@ -86,6 +92,7 @@
 --
 -- Library:CreateLabel({ Text: string, TextSize: number, TextColor3: Color3,
 --   Parent: Instance })
+--   Example: Library:CreateLabel({ Text = 'Hello', TextColor3 = Color3.fromRGB(255, 0, 0) })
 --   Creates a standalone drawing label.
 --
 -- Library:Create(Class: string, Properties: table)
@@ -249,7 +256,5 @@ Library:OnUnload(function()
     print('[centhack] main unloaded')
 end)
 
-    end)
-end
 
 print('[centhack] main loaded — press RightControl to open the menu')
