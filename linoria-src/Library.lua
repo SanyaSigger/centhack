@@ -125,7 +125,7 @@ end;
 
 function Library:AttemptSave()
     if Library.SaveManager then
-        Library.SaveManager:Save();
+        Library.SaveManager:Save(Library.SaveManager.CurrentConfig);
     end;
 end;
 
@@ -1715,6 +1715,59 @@ do
         return Button;
     end;
 
+    -- AddWidget(Idx, Info)
+    -- Embeds a custom panel inside the groupbox. Used for the ESP preview,
+    -- which needs a live viewport rendered inside the menu window.
+    -- Info: { Default = { Size = UDim2 }, Create = function(Widget) end }
+    function Funcs:AddWidget(Idx, Info)
+        assert(Info.Default and Info.Default.Size, 'AddWidget: Missing widget size.');
+
+        local Widget = {
+            Type = 'Widget';
+            Value = Info.Default;
+            Callback = Info.Callback or function() end;
+        };
+
+        local Groupbox = self;
+        local Container = Groupbox.Container;
+
+        local Outer = Library:Create('Frame', {
+            BackgroundColor3 = Library.MainColor;
+            BorderColor3 = Library.OutlineColor;
+            Size = Info.Default.Size;
+            ZIndex = 5;
+            Parent = Container;
+        });
+
+        Library:AddToRegistry(Outer, {
+            BackgroundColor3 = 'MainColor';
+            BorderColor3 = 'OutlineColor';
+        });
+
+        local Inner = Library:Create('Frame', {
+            BackgroundTransparency = 1;
+            Size = UDim2.new(1, -2, 1, -2);
+            Position = UDim2.new(0, 1, 0, 1);
+            ZIndex = 6;
+            Parent = Outer;
+        });
+
+        Widget.Outer = Outer;
+        Widget.Inner = Inner;
+        Widget.Container = Inner;
+
+        if type(Info.Create) == 'function' then
+            Info.Create(Widget);
+        end;
+
+        Groupbox:AddBlank(5);
+        Groupbox:Resize();
+
+        Options[Idx] = Widget;
+
+        return Widget;
+    end;
+
     function Funcs:AddDivider()
         local Groupbox = self;
         local Container = self.Container
@@ -3065,6 +3118,36 @@ function Library:Notify(Text, Time)
 
         NotifyOuter:Destroy();
     end);
+end;
+
+-- Creates a viewport (frame + camera + world model) that can be embedded in
+-- the UI. The ESP preview uses this to show a character inside the menu.
+function Library:CreateViewport(Options)
+    Options = Options or {};
+
+    local Viewport = Library:Create('ViewportFrame', {
+        BackgroundColor3 = Library.BackgroundColor;
+        BorderSizePixel = 0;
+        Size = Options.Size or UDim2.fromOffset(220, 240);
+        ZIndex = 7;
+        Parent = Options.Parent;
+    });
+
+    Library:AddToRegistry(Viewport, {
+        BackgroundColor3 = 'BackgroundColor';
+    });
+
+    local World = Instance.new('WorldModel');
+    local Cam = Instance.new('Camera');
+    Cam.FieldOfView = 40;
+    Cam.Parent = Viewport;
+    Viewport.CurrentCamera = Cam;
+
+    return {
+        Viewport = Viewport;
+        Camera = Cam;
+        World = World;
+    };
 end;
 
 function Library:CreateWindow(...)

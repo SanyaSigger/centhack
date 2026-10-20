@@ -16,7 +16,10 @@ local function SerializeValue(object)
 		return object.Value;
 	elseif Type == 'ColorPicker' then
 		local Lib = getgenv().Library;
-		return Lib and Lib:ColorToHex(object.Value) or object.Value:ToHex();
+		return {
+			color = Lib and Lib:ColorToHex(object.Value) or object.Value:ToHex();
+			transparency = object.Transparency or 0;
+		};
 	elseif Type == 'KeyPicker' then
 		return object.Value;
 	elseif Type == 'Input' then
@@ -39,14 +42,30 @@ local function DeserializeValue(object, data)
 			object:SetValue(data);
 		end
 	elseif Type == 'Dropdown' then
-		if object.SetValue and type(data) == 'string' then
-			object:SetValue(data);
+		if object.SetValue then
+			if object.Multi and type(data) == 'table' then
+				-- Multi-select dropdown: data is a table of {Value = true, ...}
+				local newValues = {};
+				for Value, Bool in next, data do
+					newValues[Value] = Bool;
+				end
+				object:SetValue(newValues);
+			elseif type(data) == 'string' then
+				object:SetValue(data);
+			end
 		end
 	elseif Type == 'ColorPicker' then
 		if object.SetValueRGB then
 			local Lib = getgenv().Library;
-			local color = Lib and Lib:ColorFromHex(data) or Color3.fromHex(data);
-			object:SetValueRGB(color, object.Transparency or 0);
+			local color, transparency;
+			if type(data) == 'table' then
+				color = Lib and Lib:ColorFromHex(data.color) or Color3.fromHex(data.color);
+				transparency = data.transparency or 0;
+			else
+				color = Lib and Lib:ColorFromHex(data) or Color3.fromHex(data);
+				transparency = object.Transparency or 0;
+			end
+			object:SetValueRGB(color, transparency);
 		end
 	elseif Type == 'KeyPicker' then
 		if object.Value ~= nil then
