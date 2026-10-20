@@ -273,6 +273,7 @@ Left:AddDropdown('Example_TargetPlayer', {
 -- --- Color picker ----
 Left:AddLabel('Crosshair color')
 Left:AddColorPicker('Example_Crosshair', {
+    Default = Color3.fromRGB(255, 255, 255),
     Transparency = true,
     Callback = function(Color)
         print('[Crosshair]', Color)
@@ -509,6 +510,7 @@ local StyleGroup = TabStyle:AddLeftGroupbox('Accent gradient')
 
 StyleGroup:AddLabel('Accent 1 (gradient start)')
 StyleGroup:AddColorPicker('Style_Accent1', {
+    Default = Library.AccentColor1,
     Callback = function(Color)
         Library.AccentColor1 = Color
         Library:UpdateGradients()
@@ -518,6 +520,7 @@ StyleGroup:AddColorPicker('Style_Accent1', {
 
 StyleGroup:AddLabel('Accent 2 (gradient end)')
 StyleGroup:AddColorPicker('Style_Accent2', {
+    Default = Library.AccentColor2,
     Callback = function(Color)
         Library.AccentColor2 = Color
         Library:UpdateGradients()
