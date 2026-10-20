@@ -1343,22 +1343,75 @@ do
 
     -- AddColorPicker(Idx, Info)
     -- AddColorPicker(Idx, Info)
+    -- AddColorPicker(Idx, Info)
     function Funcs:AddColorPicker(Idx, Info)
         local Groupbox = self;
         local Container = Groupbox.Container;
 
         assert(Info.Default, 'AddColorPicker: Missing default value.');
 
-        -- Create label first
+        -- Create a label to attach the color picker to
         local Label = Groupbox:AddLabel(Info.Title or 'Color picker');
 
-        -- Call first Funcs.AddColorPicker directly on Label
-        -- This creates a proper ColorPicker object with SetValueRGB etc.
-        -- and stores it in Options[Idx]
+        -- Try to create a full ColorPicker by delegating to first Funcs
         local mt = getmetatable(Label);
+        local delegated = false;
         if mt and mt.__index and mt.__index.AddColorPicker then
-            mt.__index.AddColorPicker(Label, Idx, Info);
+            local ok, result = pcall(mt.__index.AddColorPicker, Label, Idx, Info);
+            delegated = ok and Options[Idx] ~= nil;
         end;
+
+        -- Ensure Options[Idx] exists with a proper ColorPicker object
+        if not Options[Idx] then
+            Options[Idx] = {
+                Value = Info.Default;
+                Transparency = tonumber(Info.Transparency) or 0;
+                Type = 'ColorPicker';
+                Title = type(Info.Title) == 'string' and Info.Title or 'Color picker';
+                Callback = Info.Callback or function(Color) end;
+            };
+        end;
+
+        -- Ensure SetValueRGB exists on the ColorPicker object
+        if Options[Idx] and not Options[Idx].SetValueRGB then
+            Options[Idx].SetValueRGB = function(self, Color, Transparency)
+                self.Transparency = tonumber(Transparency) or 0;
+                self.Value = Color;
+                if self.SetHSVFromRGB then
+                    self:SetHSVFromRGB(Color);
+                end;
+                if self.Display then
+                    self:Display();
+                end;
+                if self.Changed then
+                    self.Changed(Color);
+                end;
+                if self.Callback then
+                    self.Callback(Color);
+                end;
+            end;
+        end;
+
+        -- Ensure SetValue exists
+        if Options[Idx] and not Options[Idx].SetValue then
+            Options[Idx].SetValue = function(self, Color, Transparency)
+                self:SetValueRGB(Color, Transparency);
+            end;
+        end;
+
+        -- Ensure OnChanged exists
+        if Options[Idx] and not Options[Idx].OnChanged then
+            Options[Idx].OnChanged = function(self, Callback)
+                self.Changed = Callback;
+                if Callback then Callback(self.Value) end;
+            end;
+        end;
+
+        Groupbox:AddBlank(5);
+        Groupbox:Resize();
+
+        return Options[Idx];
+    end;
 
         Groupbox:AddBlank(5);
         Groupbox:Resize();
