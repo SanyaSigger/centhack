@@ -121,6 +121,23 @@ local ThemeManager = {} do
 		self:ThemeUpdate()
 	end
 
+
+		groupbox:AddDivider()
+		
+		groupbox:AddLabel('Gradient animation')
+		groupbox:AddToggle('ThemeManager_Move', {
+			Text = 'Move gradient';
+			Default = false;
+			Callback = function(Value)
+				ThemeManager.Moving = Value;
+				if Value then
+					ThemeManager.StartMove();
+				else
+					ThemeManager.StopMove();
+				end;
+			end;
+		});
+
 	function ThemeManager:LoadDefault()		
 		local theme = 'Default'
 		local content = isfile(self.Folder .. '/themes/default.txt') and readfile(self.Folder .. '/themes/default.txt')
@@ -295,27 +312,12 @@ local ThemeManager = {} do
 			Options.ThemeManager_CustomThemeList:SetValue(nil)
 		end)
 
-		groupbox:AddButton('Set as default', function()
-			if Options.ThemeManager_CustomThemeList.Value ~= nil and Options.ThemeManager_CustomThemeList.Value ~= '' then
-				self:SaveDefault(Options.ThemeManager_CustomThemeList.Value)
-				self.Library:Notify(string.format('Set default theme to %q', Options.ThemeManager_CustomThemeList.Value))
-			end
-		end)
 
 		ThemeManager:LoadDefault()
 
 
 		end
 
-		BindChanged(Options.BackgroundColor, UpdateTheme)
-		BindChanged(Options.MainColor, UpdateTheme)
-		BindChanged(Options.AccentColor1, UpdateTheme)
-		BindChanged(Options.AccentColor2, UpdateTheme)
-		BindChanged(Options.OutlineColor, UpdateTheme)
-		BindChanged(Options.FontColor, UpdateTheme)
-		BindChanged(Options.ThemeManager_FontName, UpdateTheme)
-		BindChanged(Options.ThemeManager_FontSize, UpdateTheme)
-		BindChanged(Options.ThemeManager_GradientDirection, UpdateTheme)
 
 	end
 	function ThemeManager:GetCustomTheme(file)
@@ -437,6 +439,47 @@ local ThemeManager = {} do
 	function ThemeManager:ApplyToGroupbox(groupbox)
 		assert(self.Library, 'Must set ThemeManager.Library first!')
 		self:CreateThemeManager(groupbox)
+	end
+
+
+	function ThemeManager:StartMove()
+		if self.MoveConnection then
+			return
+		end
+		
+		local RunService = game:GetService('RunService')
+		local startTime = tick()
+		local origC1 = self.Library.AccentColor1
+		local origC2 = self.Library.AccentColor2
+		
+		self.MoveConnection = RunService.Heartbeat:Connect(function()
+			local elapsed = (tick() - startTime) % 5
+			local progress = elapsed / 5
+			
+			-- Shift hue between original colors
+			local h1, s1, v1 = origC1:ToHSV()
+			local h2, s2, v2 = origC2:ToHSV()
+			
+			local newH1 = (h1 + progress) % 1
+			local newH2 = (h2 + progress) % 1
+			
+			self.Library.AccentColor1 = Color3.fromHSV(newH1, s1, v1)
+			self.Library.AccentColor2 = Color3.fromHSV(newH2, s2, v2)
+			
+			local opt1 = Options.AccentColor1
+			local opt2 = Options.AccentColor2
+			if opt1 and opt1.SetValueRGB then pcall(opt1.SetValueRGB, opt1, self.Library.AccentColor1) end
+			if opt2 and opt2.SetValueRGB then pcall(opt2.SetValueRGB, opt2, self.Library.AccentColor2) end
+			
+			self:ThemeUpdate()
+		end)
+	end
+
+	function ThemeManager:StopMove()
+		if self.MoveConnection then
+			self.MoveConnection:Disconnect()
+			self.MoveConnection = nil
+		end
 	end
 
 	ThemeManager:BuildFolderTree()
