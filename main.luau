@@ -395,7 +395,8 @@ local TOGGLE_COLORS = {
     killaura_enabled = YELLOW,
     esp_player_enabled = RED,
     esp_npc_enabled = RED,
-    esp_corpse_enabled = RED,
+    corpseesp_enabled = RED,
+    droppedesp_enabled = RED,
     inventory_checker_enabled = RED,
     item_finder_enabled = RED,
 }
@@ -5366,6 +5367,135 @@ do
     })
 end
 
+-- inventory checker
+esp_inventory_box:AddToggle('inventory_checker_enabled', {
+    Text = 'inventory checker',
+    Default = false,
+    Callback = function(v)
+        INVENTORY.enabled = v
+    end,
+})
+
+esp_inventory_box:AddToggle('inventory_checker_full', {
+    Text = 'show full inventory',
+    Default = false,
+    Callback = function(v)
+        INVENTORY.full = v
+    end,
+})
+
+esp_inventory_box:AddToggle('inventory_checker_value', {
+    Text = 'show inventory value',
+    Default = false,
+    Callback = function(v)
+        INVENTORY.value = v
+    end,
+})
+
+esp_inventory_box:AddToggle('inventory_checker_corpse', {
+    Text = 'check corpse',
+    Default = false,
+    Callback = function(v)
+        INVENTORY.corpse = v
+    end,
+})
+
+esp_inventory_box:AddDropdown('inventory_checker_side', {
+    Text = 'text position',
+    Values = { 'Left', 'Right' },
+    Default = 'Right',
+    Callback = function(v)
+        INVENTORY.side = v
+    end,
+})
+
+esp_inventory_box:AddSlider('inventory_checker_x', {
+    Text = 'checker x',
+    Default = 24, Min = 0, Max = 3000, Rounding = 0, Compact = true,
+    Callback = function(v)
+        INVENTORY.x = v
+    end,
+})
+
+esp_inventory_box:AddSlider('inventory_checker_y', {
+    Text = 'checker y',
+    Default = 300, Min = 0, Max = 3000, Rounding = 0, Compact = true,
+    Callback = function(v)
+        INVENTORY.y = v
+    end,
+})
+
+esp_inventory_box:AddToggle('inventory_checker_stretch', {
+    Text = 'stretch size',
+    Default = true,
+    Callback = function(v)
+        INVENTORY.stretch = v
+    end,
+})
+
+esp_inventory_box:AddSlider('inventory_checker_delay', {
+    Text = 'refresh delay',
+    Default = 0.1, Min = 0.05, Max = 2, Rounding = 2, Compact = true,
+    Callback = function(v)
+        INVENTORY.delay = v
+    end,
+})
+
+esp_inventory_box:AddDivider()
+
+esp_inventory_box:AddToggle('item_finder_enabled', {
+    Text = 'item finder',
+    Default = false,
+    Callback = function(v)
+        ITEM_FINDER.enabled = v
+    end,
+})
+
+esp_inventory_box:AddDropdown('item_finder_items', {
+    Text = 'items to find',
+    Values = finder_items,
+    Default = {},
+    Multi = true,
+    Callback = function(v)
+        local lookup = {}
+        if type(v) == "table" then
+            for key, value in pairs(v) do
+                if type(key) == "number" and type(value) == "string" then
+                    lookup[value] = true
+                elseif value == true and type(key) == "string" then
+                    lookup[key] = true
+                end
+            end
+        end
+        ITEM_FINDER.items = lookup
+    end,
+})
+
+esp_inventory_box:AddSlider('item_finder_x', {
+    Text = 'finder x',
+    Default = 300, Min = 0, Max = 3000, Rounding = 0, Compact = true,
+    Callback = function(v)
+        ITEM_FINDER.x = v
+    end,
+})
+
+esp_inventory_box:AddSlider('item_finder_y', {
+    Text = 'finder y',
+    Default = 50, Min = 0, Max = 3000, Rounding = 0, Compact = true,
+    Callback = function(v)
+        ITEM_FINDER.y = v
+    end,
+})
+
+esp_inventory_box:AddToggle('item_finder_stretch', {
+    Text = 'stretch size',
+    Default = false,
+    Callback = function(v)
+        ITEM_FINDER.stretch = v
+    end,
+})
+
+
 -- dropped items ------------------------------------------------------------
 
 do
@@ -8257,6 +8387,10 @@ end))
 ----------------------------------------------------------------------
 -- Both addons read the option tables from the global environment, which the
 -- library keeps in sync through getgenv(), so no extra plumbing is needed.
+
+-- the esp creates the targets for the players, the npcs, the corpses and the
+-- dropped items
+pcall(function() cheat.EspLibrary.load() end)
 if ThemeManager then
     pcall(function() ThemeManager:SetLibrary(Library) end)
     pcall(function() ThemeManager:SetFolder('centhackV2') end)
