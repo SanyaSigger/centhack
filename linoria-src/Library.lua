@@ -3170,7 +3170,7 @@ function Library:CreateWindow(...)
         Text = Config.Title or '';
         TextXAlignment = Enum.TextXAlignment.Center;
         TextSize = 11;
-        ZIndex = 3;
+        ZIndex = 5;
         Parent = Main;
     });
 
@@ -3182,7 +3182,7 @@ function Library:CreateWindow(...)
         BackgroundTransparency = 1;
         Position = UDim2.new(0, 8, 0, 19);
         Size = UDim2.new(1, -16, 0, 20);
-        ZIndex = 3;
+        ZIndex = 50;
         Parent = Main;
     });
 
@@ -3222,7 +3222,7 @@ function Library:CreateWindow(...)
             BackgroundColor3 = Library.BackgroundColor;
             BorderColor3 = Library.OutlineColor;
             Size = UDim2.new(0, TabButtonWidth + 8 + 4, 1, 0);
-            ZIndex = 1;
+            ZIndex = 50;
             Parent = TabArea;
         });
 
@@ -3235,7 +3235,7 @@ function Library:CreateWindow(...)
             Position = UDim2.new(0, 0, 0, 0);
             Size = UDim2.new(1, 0, 1, -1);
             Text = Name;
-            ZIndex = 1;
+            ZIndex = 51;
             Parent = TabButton;
         });
 
@@ -3245,7 +3245,7 @@ function Library:CreateWindow(...)
             Position = UDim2.new(0, 0, 1, 0);
             Size = UDim2.new(1, 0, 0, 1);
             BackgroundTransparency = 1;
-            ZIndex = 3;
+            ZIndex = 49;
             Parent = TabButton;
         });
 
