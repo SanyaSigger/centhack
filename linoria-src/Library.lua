@@ -1095,13 +1095,13 @@ do
 
             Library:Create(DisplayFrame, {
                 BackgroundColor3 = ColorPicker.Value;
-                BackgroundTransparency = ColorPicker.Transparency;
+                BackgroundTransparency = tonumber(ColorPicker.Transparency) or 0;
                 BorderColor3 = Library:GetDarkerColor(ColorPicker.Value);
             });
 
             if TransparencyBoxInner then
                 TransparencyBoxInner.BackgroundColor3 = ColorPicker.Value;
-                TransparencyCursor.Position = UDim2.new(1 - ColorPicker.Transparency, 0, 0, 0);
+                TransparencyCursor.Position = UDim2.new(1 - (tonumber(ColorPicker.Transparency) or 0), 0, 0, 0);
             end;
 
             CursorOuter.Position = UDim2.new(ColorPicker.Sat, 0, 1 - ColorPicker.Vib, 0);
