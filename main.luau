@@ -327,7 +327,10 @@ end
 -- UI LIBRARY
 ----------------------------------------------------------------------
 
-local REPO = 'https://raw.githubusercontent.com/SanyaSigger/centhack/main/linoria-src/'
+-- The UI library and its addons come straight from LinoriaLib, the vendored
+-- copy in linoria-src is only used when the download fails.
+local REPO = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
+local FALLBACK_REPO = 'https://raw.githubusercontent.com/SanyaSigger/centhack/main/linoria-src/'
 
 -- A cache buster, otherwise the executor keeps serving the library copy it
 -- downloaded on an earlier run and library fixes never arrive.
@@ -336,13 +339,13 @@ local function library_version()
     return ok and stamp or '1'
 end
 
-local function LoadLibraryFile(name)
+local function LoadLibraryFile(name, fallback)
     local source
     local ok = pcall(function()
         source = game:HttpGet(REPO .. name .. '?v=' .. library_version())
     end)
     if not (ok and source and #source > 0) then
-        source = game:HttpGet(REPO .. name)
+        source = game:HttpGet(FALLBACK_REPO .. (fallback or name))
     end
     local chunk, err = loadstring(source, name)
     if not chunk then
@@ -357,8 +360,8 @@ Library = LoadLibraryFile('Library.lua')
 -- still runs, it just loses theme switching and config saving.
 ThemeManager = nil
 SaveManager = nil
-pcall(function() ThemeManager = LoadLibraryFile('ThemeManager.lua') end)
-pcall(function() SaveManager = LoadLibraryFile('SaveManager.lua') end)
+pcall(function() ThemeManager = LoadLibraryFile('addons/ThemeManager.lua', 'ThemeManager.lua') end)
+pcall(function() SaveManager = LoadLibraryFile('addons/SaveManager.lua', 'SaveManager.lua') end)
 
 -- The library publishes its option tables through getgenv(); keep local
 -- references so the feature code can use plain `Toggles` / `Options`.
@@ -404,6 +407,11 @@ local TOGGLE_COLORS = {
 local UI_KEYPICKERS = {}     -- every key picker that was created
 local UI_PICKING = nil       -- key picker currently waiting for a key press
 
+-- LinoriaLib names the accent color "AccentColor", some forks use
+-- "AccentColor1" - both are supported.
+local ACCENT_NAME = (Library.AccentColor1 and "AccentColor1") or "AccentColor"
+local ACCENT_COLOR = Library[ACCENT_NAME] or Library.AccentColor or Color3.fromRGB(140, 135, 180)
+
 local THEME_COLORS = {
     ["Light Text"] = "FontColor",
     ["Dark Text"] = "DarkText",
@@ -412,20 +420,22 @@ local THEME_COLORS = {
     ["Outline"] = "OutlineColor",
     ["Light Inline"] = "MainColor",
     ["Dark Inline"] = "DarkInline",
-    ["Accent"] = "AccentColor1",
+    ["Accent"] = ACCENT_NAME,
 }
 
 local function theme_color(name, fallback)
     local field = THEME_COLORS[name]
-    if field and Library[field] then
+    if field and type(Library[field]) == "Color3" then
         return Library[field]
     end
-    if name == "Dark Text" then
+    if name == "Dark Text" and type(Library.FontColor) == "Color3" and type(Library.BackgroundColor) == "Color3" then
         return Library.FontColor:Lerp(Library.BackgroundColor, 0.45)
-    elseif name == "Lighter Background" then
+    elseif name == "Lighter Background" and type(Library.BackgroundColor) == "Color3" and type(Library.FontColor) == "Color3" then
         return Library.BackgroundColor:Lerp(Library.FontColor, 0.08)
-    elseif name == "Dark Inline" then
+    elseif name == "Dark Inline" and type(Library.MainColor) == "Color3" and type(Library.BackgroundColor) == "Color3" then
         return Library.MainColor:Lerp(Library.BackgroundColor, 0.5)
+    elseif name == "Accent" then
+        return ACCENT_COLOR
     end
     return fallback
 end
@@ -503,8 +513,8 @@ local function key_picker_update(picker)
     end
     if picker.ListLabel and Library.RegistryMap and Library.RegistryMap[picker.ListLabel] then
         local active = key_picker_state(picker)
-        picker.ListLabel.TextColor3 = active and Library.AccentColor1 or Library.FontColor
-        Library.RegistryMap[picker.ListLabel].Properties.TextColor3 = active and 'AccentColor1' or 'FontColor'
+        picker.ListLabel.TextColor3 = active and ACCENT_COLOR or Library.FontColor
+        Library.RegistryMap[picker.ListLabel].Properties.TextColor3 = active and ACCENT_NAME or 'FontColor'
     end
 end
 
@@ -3413,6 +3423,11 @@ silent_aim_box:AddToggle('silentaim_enabled', {
     Callback = function(v)
         silent_aim.enabled = v
     end,
+}):AddKeyPicker('silentaim_bind', {
+    Text = 'silent aim',
+    Default = 'None',
+    Mode = 'Toggle',
+    SyncToggleState = true,
 })
 
 silent_aim_box:AddSlider('silentaim_distance', {
@@ -3499,6 +3514,11 @@ silent_aim_box:AddToggle('silentaim_instant', {
         silent_aim.instant = v
         refresh_instant_method()
     end,
+}):AddKeyPicker('silentaim_instant_bind', {
+    Text = 'instant hit',
+    Default = 'None',
+    Mode = 'Toggle',
+    SyncToggleState = true,
 })
 
 silent_aim_box:AddToggle('silentaim_headshot', {
@@ -3939,6 +3959,11 @@ knife_box:AddToggle('killaura_enabled', {
             cheat.killaura.target = nil
         end
     end,
+}):AddKeyPicker('killaura_enabled_bind', {
+    Text = 'killaura',
+    Default = 'None',
+    Mode = 'Toggle',
+    SyncToggleState = true,
 })
 
 ----------------------------------------------------------------------
@@ -4113,6 +4138,11 @@ misc_movement_box:AddToggle('mv_thirdperson', {
         movement.thirdperson = v
         if not v then cheat.camera_cf_override = nil end
     end,
+}):AddKeyPicker('mv_thirdperson_bind', {
+    Text = '3rd person',
+    Default = 'None',
+    Mode = 'Toggle',
+    SyncToggleState = true,
 })
 
 misc_movement_box:AddSlider('mv_thirdperson_distance', {
@@ -4477,6 +4507,11 @@ misc_desync_box:AddToggle('desync_enabled', {
     Callback = function(v)
         desync.enabled = v
     end,
+}):AddKeyPicker('desync_enabled_bind', {
+    Text = 'desync',
+    Default = 'None',
+    Mode = 'Toggle',
+    SyncToggleState = true,
 })
 
 misc_desync_box:AddSlider('desync_x', {
@@ -4643,6 +4678,11 @@ misc_desync_box:AddToggle('freecam_enabled', {
             if camera then camera.CameraType = Enum.CameraType.Custom end
         end
     end,
+}):AddKeyPicker('freecam_enabled_bind', {
+    Text = 'freecam',
+    Default = 'None',
+    Mode = 'Toggle',
+    SyncToggleState = true,
 })
 
 misc_desync_box:AddSlider('freecam_speed', {
@@ -6144,6 +6184,10 @@ visuals_misc_box:AddToggle('misc_zoom', {
     Callback = function(v)
         misc.zoom_enabled = v
     end,
+}):AddKeyPicker('misc_zoom_bind', {
+    Text = 'zoom',
+    Default = 'None',
+    Mode = 'Hold',
 })
 
 visuals_misc_box:AddSlider('misc_zoom_size', {
@@ -8640,6 +8684,38 @@ if ThemeManager then
     pcall(function() ThemeManager:SetLibrary(Library) end)
     pcall(function() ThemeManager:SetFolder('centhackV2') end)
     pcall(function() ThemeManager:ApplyToGroupbox(theme_box) end)
+end
+
+-- KEYBINDS ------------------------------------------------------------------
+-- Every keybind of the menu is listed here, the list updates itself.
+local keybind_box = ui.tabs.config:AddRightGroupbox('KEYBINDS')
+
+do
+    local rows = {}
+
+    for _, picker in ipairs(UI_KEYPICKERS) do
+        local label = keybind_box:AddLabel(picker.Text)
+        rows[#rows + 1] = { picker = picker, label = label, text = "" }
+    end
+
+    local function set_label(label, text)
+        if label.TextLabel then
+            label.TextLabel.Text = text
+        elseif label.SetText then
+            label:SetText(text)
+        end
+    end
+
+    cheat.utility.new_renderstepped(function()
+        for i = 1, #rows do
+            local row = rows[i]
+            local text = string.format("%s  [%s]  (%s)", row.picker.Text, row.picker.Value, row.picker.Mode or "Toggle")
+            if row.text ~= text then
+                row.text = text
+                set_label(row.label, text)
+            end
+        end
+    end)
 end
 
 if SaveManager then
