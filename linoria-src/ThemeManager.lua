@@ -1,9 +1,64 @@
 local httpService = game:GetService('HttpService')
+
+-- Only fonts that exist on Enum.Font. Built by probing each name with pcall
+-- so missing members (SourceSansBoldItalic, World, GothamSemibold, …) never crash.
+local FONT_CANDIDATES = {
+	'Legacy', 'Arial', 'ArialBold',
+	'SourceSans', 'SourceSansBold', 'SourceSansLight', 'SourceSansItalic', 'SourceSansSemibold',
+	'Bodoni', 'Garamond', 'Cartoon', 'Code', 'Highway', 'SciFi', 'Arcade', 'Fantasy', 'Antique',
+	'Gotham', 'GothamMedium', 'GothamBold', 'GothamBlack',
+	'AmaticSC', 'Bangers', 'Creepster', 'DenkOne', 'Fondamento', 'FredokaOne', 'GrenzeGotisch',
+	'IndieFlower', 'JosefinSans', 'Jura', 'Kalam', 'LuckiestGuy', 'Merriweather', 'Michroma',
+	'Nunito', 'Oswald', 'PatrickHand', 'PermanentMarker', 'Roboto', 'RobotoCondensed', 'RobotoMono',
+	'Sarpanch', 'SpecialElite', 'TitilliumWeb', 'Ubuntu',
+	'BuilderSans', 'BuilderSansMedium', 'BuilderSansBold', 'BuilderSansExtraBold',
+	'Arimo', 'ArimoBold',
+}
+
+local function ResolveFont(name)
+	if type(name) ~= 'string' or name == '' then
+		return Enum.Font.Code
+	end
+
+	local ok, font = pcall(function()
+		return Enum.Font[name]
+	end)
+
+	if ok and font ~= nil then
+		return font
+	end
+
+	return Enum.Font.Code
+end
+
+local function GetAvailableFontNames()
+	local names = {}
+
+	for _, name in ipairs(FONT_CANDIDATES) do
+		local ok, font = pcall(function()
+			return Enum.Font[name]
+		end)
+
+		if ok and font ~= nil then
+			table.insert(names, name)
+		end
+	end
+
+	-- Fallback so the dropdown is never empty on weird executors.
+	if #names == 0 then
+		table.insert(names, 'Code')
+	end
+
+	table.sort(names)
+	return names
+end
+
 local ThemeManager = {} do
 	ThemeManager.Folder = 'LinoriaLibSettings'
 	-- if not isfolder(ThemeManager.Folder) then makefolder(ThemeManager.Folder) end
 
 	ThemeManager.Library = nil
+	ThemeManager.FontNames = GetAvailableFontNames()
 	ThemeManager.BuiltInThemes = {
 		['Default'] 		= { 1, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"1c1c1c","AccentColor1":"0055ff","AccentColor2":"0055ff","UseGradient":false,"BackgroundColor":"141414","OutlineColor":"323232"}') },
 		['BBot'] 			= { 2, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"1e1e1e","AccentColor1":"7e48a3","AccentColor2":"7e48a3","UseGradient":false,"BackgroundColor":"232323","OutlineColor":"141414"}') },
@@ -96,50 +151,10 @@ local ThemeManager = {} do
 				elseif libField == 'BackgroundBlur' then
 					val = (tonumber(val) or 0) / 100 * 24
 				end
-				-- Convert font name string to Enum.Font
+				-- Convert font name string to Enum.Font (safely — invalid names fall back to Code)
 				if libField == 'FontName' then
-					local fontMap = {
-						Code = Enum.Font.Code;
-						Arial = Enum.Font.Arial;
-						Gotham = Enum.Font.Gotham;
-						GothamBold = Enum.Font.GothamBold;
-						GothamSemibold = Enum.Font.GothamSemibold;
-						GothamMedium = Enum.Font.GothamMedium;
-						SourceSans = Enum.Font.SourceSans;
-						SourceSansBold = Enum.Font.SourceSansBold;
-						SourceSansSemibold = Enum.Font.SourceSansSemibold;
-						SourceSansLight = Enum.Font.SourceSansLight;
-						SourceSansItalic = Enum.Font.SourceSansItalic;
-						SourceSansBoldItalic = Enum.Font.SourceSansBoldItalic;
-						Antique = Enum.Font.Antique;
-						Arcade = Enum.Font.Arcade;
-						Bangers = Enum.Font.Bangers;
-						Cartoon = Enum.Font.Cartoon;
-						Creepster = Enum.Font.Creepster;
-						Fantasy = Enum.Font.Fantasy;
-						Garamond = Enum.Font.Garamond;
-						IndieFlower = Enum.Font.IndieFlower;
-						JosefinSans = Enum.Font.JosefinSans;
-						Jura = Enum.Font.Jura;
-						Kalam = Enum.Font.Kalam;
-						LuckiestGuy = Enum.Font.LuckiestGuy;
-						Merriweather = Enum.Font.Merriweather;
-						Michroma = Enum.Font.Michroma;
-						Nunito = Enum.Font.Nunito;
-						Oswald = Enum.Font.Oswald;
-						PatrickHand = Enum.Font.PatrickHand;
-						PermanentMarker = Enum.Font.PermanentMarker;
-						Roboto = Enum.Font.Roboto;
-						RobotoCondensed = Enum.Font.RobotoCondensed;
-						RobotoMono = Enum.Font.RobotoMono;
-						Sarpanch = Enum.Font.Sarpanch;
-						SpecialElite = Enum.Font.SpecialElite;
-						Ubuntu = Enum.Font.Ubuntu;
-						World = Enum.Font.World;
-					};
-					local resolved = fontMap[val] or fontMap[self.Library.FontName] or Enum.Font.Code;
-					self.Library.Font = resolved;
-					self.Library.FontName = val;
+					self.Library.Font = ResolveFont(val)
+					self.Library.FontName = (type(val) == 'string' and val ~= '') and val or (self.Library.FontName or 'Code')
 				end
 				self.Library[libField] = val;
 			end
@@ -195,7 +210,7 @@ local ThemeManager = {} do
 		groupbox:AddLabel('Font name')
 		groupbox:AddDropdown('ThemeManager_FontName', {
 			Text = 'Font';
-			Values = { 'Code', 'Arial', 'Gotham', 'SourceSans', 'Antique', 'Arcade', 'Bangers', 'Cartoon', 'Creepster', 'Fantasy', 'Garamond', 'IndieFlower', 'JosefinSans', 'Jura', 'Kalam', 'LuckiestGuy', 'Merriweather', 'Michroma', 'Nunito', 'Oswald', 'PatrickHand', 'PermanentMarker', 'Roboto', 'RobotoCondensed', 'RobotoMono', 'Sarpanch', 'SpecialElite', 'Ubuntu', 'World', };
+			Values = self.FontNames;
 			Default = self.Library.FontName or 'Code';
 		});
 

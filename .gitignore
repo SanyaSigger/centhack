@@ -1,10 +1,21 @@
 # macOS
 .DS_Store
+**/.DS_Store
 .AppleDouble
 .LSOverride
-
-# Thumbnails
 ._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editors / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
 # Directories created by the library at runtime
 LinoriaLibSettings/
@@ -13,21 +24,18 @@ themes/
 
 # Generated config files
 *.cfg
-*.json
 
-# Logs
+# Logs / temp
 *.log
+*.tmp
+*.temp
+.cache/
 
-# Roblox place files
-*.rbxlx
+# Roblox place / model binaries
 *.rbxl
-
-# Editor / IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+*.rbxlx
+*.rbxm
+*.rbxmx
 
 # Build output
 build/

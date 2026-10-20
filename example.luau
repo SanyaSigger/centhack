@@ -80,13 +80,11 @@
 -- CONFIGURATION
 ----------------------------------------------------------------------
 
--- Load library files from the local `linoria-src/` folder instead of
--- downloading them. Set to false to use GitHub raw URLs.
+-- Load library files from the local `linoria-src/` folder instead of downloading them.
+-- Set to false to use GitHub raw URLs.
 local USE_LOCAL_FILES = false
 
--- GitHub repo used when `USE_LOCAL_FILES` is false.
--- REPLACE THIS WITH YOUR OWN REPO:
---   e.g. 'https://raw.githubusercontent.com/SanyaSigger/centhack/main/linoria-src/'
+-- GitHub raw base for the UI library modules.
 local REPO = 'https://raw.githubusercontent.com/SanyaSigger/centhack/main/linoria-src/'
 
 -- Folder where configs, themes, and settings are stored on disk.
@@ -99,13 +97,20 @@ local STORAGE_FOLDER = 'LinoriaLibExample'
 local function LoadLibraryFile(name)
     if USE_LOCAL_FILES then
         local path = 'linoria-src/' .. name
-        local chunk, err = loadstring(readfile(path), name)
+        local source = readfile(path)
+        local chunk, err = loadstring(source, name)
         if not chunk then
             error(string.format('Failed to load %s: %s', path, tostring(err)))
         end
         return chunk()
     end
-    return loadstring(game:HttpGet(REPO .. name), name)()
+
+    local source = game:HttpGet(REPO .. name)
+    local chunk, err = loadstring(source, name)
+    if not chunk then
+        error(string.format('Failed to load %s from %s: %s', name, REPO, tostring(err)))
+    end
+    return chunk()
 end
 
 local Library = LoadLibraryFile('Library.lua')
@@ -561,20 +566,14 @@ local FontGroup = TabStyle:AddRightGroupbox('Typography & Background')
 
 FontGroup:AddLabel('Font family'):AddDropdown('Style_FontName', {
     Text = 'Font',
-    Values = {
-        'Code', 'Arial', 'Gotham',
-        'SourceSans', 'Antique', 'Arcade', 'Bangers', 'Cartoon',
-        'Creepster', 'Fantasy', 'Garamond', 'IndieFlower', 'JosefinSans',
-        'Jura', 'Kalam', 'LuckiestGuy', 'Merriweather', 'Michroma',
-        'Nunito', 'Oswald', 'PatrickHand', 'PermanentMarker', 'Roboto',
-        'RobotoCondensed', 'RobotoMono', 'Sarpanch', 'SpecialElite',
-        'Ubuntu', 'World',
-    },
+    Values = ThemeManager.FontNames,
     Default = Library.FontName,
     Callback = function(Value)
         Library.FontName = Value
-        local ok, fontEnum = pcall(function() return Enum.Font[Value] end)
-        Library.Font = ok and fontEnum or Enum.Font.Code
+        local ok, font = pcall(function()
+            return Enum.Font[Value]
+        end)
+        Library.Font = (ok and font) or Enum.Font.Code
         Library:UpdateFonts()
     end,
 })

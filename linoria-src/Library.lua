@@ -1399,6 +1399,7 @@ do
             if not PopupVisible then return end;
             PopupVisible = false;
             KeybindPopup.Visible = false;
+            Library.OpenedFrames[KeybindPopup] = nil;
         end;
 
         local function ShowPopup()
@@ -1407,6 +1408,7 @@ do
             KeybindPopup.Position = UDim2.fromOffset(absPos.X + absSize.X + 8, absPos.Y);
             PopupVisible = true;
             KeybindPopup.Visible = true;
+            Library.OpenedFrames[KeybindPopup] = true;
         end;
 
         -- Toggle the popup when the toggle label / checkbox area is clicked
@@ -1442,13 +1444,10 @@ do
                 Label.TextColor3 = Library.AccentColor1;
                 Library.RegistryMap[Label].Properties.TextColor3 = 'AccentColor1';
 
-                HidePopup();
                 Library:AttemptSave();
             end;
 
             function ModeButton:Deselect()
-                KeyPicker.Mode = nil;
-
                 Label.TextColor3 = Library.FontColor;
                 Library.RegistryMap[Label].Properties.TextColor3 = 'FontColor';
             end;
@@ -1683,8 +1682,21 @@ do
         });
     end;
 
+    -- AddLabel(Text, DoesWrap?)
+    -- AddLabel({ Text = '...', DoesWrap = bool, TextColor = Color3 })
     function Funcs:AddLabel(Text, DoesWrap)
         local Label = {};
+        local TextColor = nil;
+
+        if type(Text) == 'table' then
+            local Info = Text;
+            Text = Info.Text or '';
+            DoesWrap = Info.DoesWrap;
+            TextColor = Info.TextColor;
+        elseif typeof(DoesWrap) == 'Color3' then
+            TextColor = DoesWrap;
+            DoesWrap = false;
+        end;
 
         local Groupbox = self;
         local Container = Groupbox.Container;
@@ -1698,6 +1710,11 @@ do
             ZIndex = 5;
             Parent = Container;
         });
+
+        if TextColor then
+            Library:RemoveFromRegistry(TextLabel);
+            TextLabel.TextColor3 = TextColor;
+        end;
 
         if DoesWrap then
             local Y = select(2, Library:GetTextBounds(Text, Library.Font, 14, Vector2.new(TextLabel.AbsoluteSize.X, math.huge)))
@@ -1724,6 +1741,12 @@ do
             end
 
             Groupbox:Resize();
+        end
+
+        function Label:SetTextColor(Color)
+            Library:RemoveFromRegistry(TextLabel);
+            TextLabel.TextColor3 = Color;
+            TextColor = Color;
         end
 
         if (not DoesWrap) then
@@ -1984,6 +2007,11 @@ do
             ZIndex = 5;
             Parent = Container;
         });
+
+        if Info.TextColor then
+            Library:RemoveFromRegistry(InputLabel);
+            InputLabel.TextColor3 = Info.TextColor;
+        end;
 
         Groupbox:AddBlank(1);
 
@@ -2274,10 +2302,18 @@ do
             end;
         end);
 
-        if Toggle.Risky then
+        if Info.TextColor then
+            Library:RemoveFromRegistry(ToggleLabel)
+            ToggleLabel.TextColor3 = Info.TextColor
+        elseif Toggle.Risky then
             Library:RemoveFromRegistry(ToggleLabel)
             ToggleLabel.TextColor3 = Library.RiskColor
             Library:AddToRegistry(ToggleLabel, { TextColor3 = 'RiskColor' })
+        end
+
+        function Toggle:SetTextColor(Color)
+            Library:RemoveFromRegistry(ToggleLabel)
+            ToggleLabel.TextColor3 = Color
         end
 
         Toggle:Display();
@@ -2319,7 +2355,7 @@ do
         local Container = Groupbox.Container;
 
         if not Info.Compact then
-            Library:CreateLabel({
+            local SliderTitle = Library:CreateLabel({
                 Size = UDim2.new(1, 0, 0, 10);
                 TextSize = 14;
                 Text = Info.Text;
@@ -2328,6 +2364,11 @@ do
                 ZIndex = 5;
                 Parent = Container;
             });
+
+            if Info.TextColor then
+                Library:RemoveFromRegistry(SliderTitle);
+                SliderTitle.TextColor3 = Info.TextColor;
+            end;
 
             Groupbox:AddBlank(3);
         end
@@ -2536,6 +2577,11 @@ do
                 ZIndex = 5;
                 Parent = Container;
             });
+
+            if Info.TextColor then
+                Library:RemoveFromRegistry(DropdownLabel);
+                DropdownLabel.TextColor3 = Info.TextColor;
+            end;
 
             Groupbox:AddBlank(3);
         end
