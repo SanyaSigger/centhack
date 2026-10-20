@@ -340,9 +340,7 @@ DepBox:SetupDependencies({
 })
 
 -- --- Tabbox ----
-local TabboxGroup = TabElements:AddRightGroupbox('Tabbox Demo')
-
-local MyTabbox = TabboxGroup:AddTabbox({
+local MyTabbox = TabElements:AddTabbox({
     Side = 2,
     Name = 'Nested Tabs',
 })
