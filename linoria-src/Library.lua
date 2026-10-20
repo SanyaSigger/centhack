@@ -585,6 +585,10 @@ function Library:Unload()
         Connection:Disconnect()
     end
 
+-- Stub: background image support removed; kept for compatibility.
+function Library:UpdateBackground()
+end
+
      -- Call our unload callback, maybe to undo some hooks etc
     if Library.OnUnload then
         Library.OnUnload()

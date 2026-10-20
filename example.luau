@@ -56,7 +56,7 @@
     Library:SetWatermark(Text) / Library:SetWatermarkVisibility(Bool)
     Library:SetWindowTitle(Title)        (on Window)
     Library:UpdateGradients() / Library:UpdateColorsUsingRegistry()
-    Library:UpdateFonts() / Library:UpdateBackground()
+    Library:UpdateFonts()
     Library:OnUnload(Callback) / Library:Unload()
 
   ThemeManager:
@@ -147,15 +147,11 @@ Library.FontSize = 14
 Library.Font = Enum.Font.Code
 
 -- Optional shared background image behind the whole menu.
-Library.BackgroundImage = ''
-Library.BackgroundImageTransparency = 0.15
-Library.BackgroundBlur = 6
 
 -- Push the new values into the live GUI.
 Library:UpdateColorsUsingRegistry()
 Library:UpdateGradients()
 Library:UpdateFonts()
-Library:UpdateBackground()
 
 ----------------------------------------------------------------------
 -- WINDOW
@@ -596,7 +592,6 @@ FontGroup:AddInput('Style_BackgroundImage', {
     Default = Library.BackgroundImage,
     Callback = function(Value)
         Library.BackgroundImage = Value
-        Library:UpdateBackground()
     end,
 })
 
@@ -608,7 +603,6 @@ FontGroup:AddSlider('Style_BackgroundTransparency', {
     Rounding = 0,
     Callback = function(Value)
         Library.BackgroundImageTransparency = Value / 100
-        Library:UpdateBackground()
     end,
 })
 
@@ -620,7 +614,6 @@ FontGroup:AddSlider('Style_BackgroundBlur', {
     Rounding = 0,
     Callback = function(Value)
         Library.BackgroundBlur = Value / 100 * 24
-        Library:UpdateBackground()
     end,
 })
 
@@ -628,7 +621,6 @@ FontGroup:AddButton('Clear background', function()
     Library.BackgroundImage = ''
     Library.BackgroundImageTransparency = 0
     Library.BackgroundBlur = 0
-    Library:UpdateBackground()
     Library:Notify('Background cleared')
 end)
 
