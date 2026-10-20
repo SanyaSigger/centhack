@@ -329,8 +329,21 @@ end
 
 local REPO = 'https://raw.githubusercontent.com/SanyaSigger/centhack/main/linoria-src/'
 
+-- A cache buster, otherwise the executor keeps serving the library copy it
+-- downloaded on an earlier run and library fixes never arrive.
+local function library_version()
+    local ok, stamp = pcall(function() return tostring(os.time()) end)
+    return ok and stamp or '1'
+end
+
 local function LoadLibraryFile(name)
-    local source = game:HttpGet(REPO .. name)
+    local source
+    local ok = pcall(function()
+        source = game:HttpGet(REPO .. name .. '?v=' .. library_version())
+    end)
+    if not (ok and source and #source > 0) then
+        source = game:HttpGet(REPO .. name)
+    end
     local chunk, err = loadstring(source, name)
     if not chunk then
         error(string.format('Failed to load %s from %s: %s', name, REPO, tostring(err)))
@@ -5152,13 +5165,36 @@ end
 esp_preview_box:AddWidget('esp_preview', {
     Default = { Size = UDim2.new(1, -4, 0, 240) },
     Create = function(widget)
-        local viewport = Library:CreateViewport({
-            Size = UDim2.new(1, 0, 1, 0),
-            Parent = widget.Inner,
-        })
-        esp_preview.viewport = viewport.Viewport
-        esp_preview.camera = viewport.Camera
-        esp_preview.world = viewport.World
+        -- The viewport is built by hand instead of using the library helper:
+        -- ViewportFrame has no "World" property anymore (the world model has
+        -- to be parented to the viewport) and building it here keeps the
+        -- preview independent of the library version that is fetched at
+        -- runtime.
+        local viewport = Instance.new("ViewportFrame")
+        viewport.BackgroundColor3 = Color3.new(0, 0, 0)
+        viewport.BackgroundTransparency = 0
+        viewport.BorderSizePixel = 0
+        viewport.Size = UDim2.new(1, 0, 1, 0)
+        viewport.ZIndex = 7
+        viewport.Parent = widget.Inner
+
+        -- the world model has to be a child of the viewport, otherwise
+        -- nothing is rendered inside the frame
+        local world = Instance.new("WorldModel")
+        world.Parent = viewport
+
+        local camera = Instance.new("Camera")
+        camera.FieldOfView = 40
+        camera.Parent = viewport
+        viewport.CurrentCamera = camera
+
+        viewport.Ambient = Color3.fromRGB(180, 180, 180)
+        viewport.LightColor = Color3.fromRGB(255, 255, 255)
+        viewport.LightDirection = Vector3.new(-1, -1, -1)
+
+        esp_preview.viewport = viewport
+        esp_preview.camera = camera
+        esp_preview.world = world
         esp_preview.overlay = preview_build_overlay(widget.Inner)
         preview_set_model(esp_preview.mode)
         preview_frame_camera()
