@@ -97,8 +97,8 @@ local ThemeManager = {} do
 					Options[idx]:SetValueRGB(color)
 				end
 			elseif idx == 'UseGradient' then
-				if Options.ThemeManager_UseGradient then
-					Options.ThemeManager_UseGradient:SetValue(col == true or col == 'true')
+				if Toggles.ThemeManager_UseGradient then
+					Toggles.ThemeManager_UseGradient:SetValue(col == true or col == 'true')
 				end
 			elseif idx == 'FontName' then
 				if Options.ThemeManager_FontName then
@@ -143,8 +143,10 @@ local ThemeManager = {} do
 			ThemeManager_BackgroundBlur = 'BackgroundBlur';
 		}
 		for optionName, libField in next, fieldMap do
-			if Options and Options[optionName] then
-				local val = Options[optionName].Value
+			-- Toggles live in Toggles{}, everything else in Options{}
+			local obj = (Options and Options[optionName]) or (Toggles and Toggles[optionName])
+			if obj then
+				local val = obj.Value
 				-- Sliders use 0-100, the library stores 0-1 for transparency / 0-24 for blur
 				if libField == 'BackgroundImageTransparency' then
 					val = (tonumber(val) or 0) / 100
@@ -296,18 +298,24 @@ local ThemeManager = {} do
 			self:ThemeUpdate()
 		end
 
-		Options.BackgroundColor:OnChanged(UpdateTheme)
-		Options.MainColor:OnChanged(UpdateTheme)
-		Options.AccentColor1:OnChanged(UpdateTheme)
-		Options.AccentColor2:OnChanged(UpdateTheme)
-		Options.ThemeManager_UseGradient:OnChanged(UpdateTheme)
-		Options.OutlineColor:OnChanged(UpdateTheme)
-		Options.FontColor:OnChanged(UpdateTheme)
-		Options.ThemeManager_FontName:OnChanged(UpdateTheme)
-		Options.ThemeManager_FontSize:OnChanged(UpdateTheme)
-		Options.ThemeManager_BackgroundImage:OnChanged(UpdateTheme)
-		Options.ThemeManager_BackgroundImageTransparency:OnChanged(UpdateTheme)
-		Options.ThemeManager_BackgroundBlur:OnChanged(UpdateTheme)
+		local function BindChanged(obj, callback)
+			if obj and obj.OnChanged then
+				obj:OnChanged(callback)
+			end
+		end
+
+		BindChanged(Options.BackgroundColor, UpdateTheme)
+		BindChanged(Options.MainColor, UpdateTheme)
+		BindChanged(Options.AccentColor1, UpdateTheme)
+		BindChanged(Options.AccentColor2, UpdateTheme)
+		BindChanged(Toggles.ThemeManager_UseGradient, UpdateTheme)
+		BindChanged(Options.OutlineColor, UpdateTheme)
+		BindChanged(Options.FontColor, UpdateTheme)
+		BindChanged(Options.ThemeManager_FontName, UpdateTheme)
+		BindChanged(Options.ThemeManager_FontSize, UpdateTheme)
+		BindChanged(Options.ThemeManager_BackgroundImage, UpdateTheme)
+		BindChanged(Options.ThemeManager_BackgroundImageTransparency, UpdateTheme)
+		BindChanged(Options.ThemeManager_BackgroundBlur, UpdateTheme)
 	end
 
 	function ThemeManager:GetCustomTheme(file)
@@ -340,8 +348,8 @@ local ThemeManager = {} do
 			end
 		end
 
-		if Options.ThemeManager_UseGradient then
-			theme.UseGradient = Options.ThemeManager_UseGradient.Value and true or false
+		if Toggles.ThemeManager_UseGradient then
+			theme.UseGradient = Toggles.ThemeManager_UseGradient.Value and true or false
 		end
 
 		-- Font settings (stored as string names)
