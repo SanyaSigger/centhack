@@ -262,9 +262,11 @@ local ThemeManager = {} do
 			self.Library:Notify(string.format('Set default theme to %q', Options.ThemeManager_ThemeList.Value))
 		end)
 
-		Options.ThemeManager_ThemeList:OnChanged(function()
-			self:ApplyTheme(Options.ThemeManager_ThemeList.Value)
-		end)
+		if Options.ThemeManager_ThemeList then
+			Options.ThemeManager_ThemeList:OnChanged(function()
+				self:ApplyTheme(Options.ThemeManager_ThemeList.Value)
+				end)
+		end
 
 		groupbox:AddDivider()
 		groupbox:AddInput('ThemeManager_CustomThemeName', { Text = 'Custom theme name' })
