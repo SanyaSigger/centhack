@@ -431,85 +431,101 @@ NotifyGroup:AddButton('Rename window', function()
 end)
 
 ----------------------------------------------------------------------
--- TAB 3 — CONFIGURATION (SaveManager)
 ----------------------------------------------------------------------
-
+-- TAB 3 — CONFIGURATION (ThemeManager + SaveManager)
+----------------------------------------------------------------------
 local TabConfig = Window:AddTab('Configuration')
 
-SaveManager:BuildConfigSection(TabConfig)
+----------------------------------------------------------------------
+-- TAB 3 — CONFIGURATION (ThemeManager + SaveManager)
+----------------------------------------------------------------------
 
-local ConfigGroup = TabConfig:AddLeftGroupbox('Config internals')
+local ConfigGroup = TabConfig:AddLeftGroupbox('Configuration')
 
-ConfigGroup:AddLabel('Saved configs are plain-text `.json` files using JSON format.')
-
-ConfigGroup:AddButton('Show exported config', function()
-    local text = SaveManager:ExportConfig()
-    Library:Notify('Exported ' .. #text .. ' characters')
-    print(text)
-end)
-
-ConfigGroup:AddButton('Import exported config', function()
-    local text = SaveManager:ExportConfig()
-    local success, err = SaveManager:ImportConfig(text)
-    if not success then
-        return Library:Notify('Import failed: ' .. tostring(err), 3)
-    end
-    Library:Notify('Config re-imported successfully')
-end)
+-- ThemeManager controls live inside this same groupbox
+ThemeManager:ApplyToGroupbox(ConfigGroup)
 
 ConfigGroup:AddDivider()
 
-ConfigGroup:AddButton('Save to "example"', function()
-    local success, err = SaveManager:Save('example')
-    if not success then
-        return Library:Notify('Save failed: ' .. tostring(err), 3)
-    end
-    Library:Notify('Saved config "example"')
-end)
-
-ConfigGroup:AddButton('Load "example"', function()
-    local success, err = SaveManager:Load('example')
-    if not success then
-        return Library:Notify('Load failed: ' .. tostring(err), 3)
-    end
-    Library:Notify('Loaded config "example"')
-end)
-
-ConfigGroup:AddButton('List configs', function()
-    local list = SaveManager:RefreshConfigList()
-    Library:Notify('Configs: ' .. (#list > 0 and table.concat(list, ', ') or 'none'))
-end)
+-- Config name input
+ConfigGroup:AddInput('SaveManager_ConfigName', {
+		Text = 'Config name',
+		Placeholder = 'my_config',
+		Finished = true,
+		Callback = function(Value)
+			SaveManager.CurrentConfig = Value;
+		end,
+	});
 
 ConfigGroup:AddDivider()
 
-ConfigGroup:AddInput('Example_ConfigName', {
-    Text = 'Config name',
-    Placeholder = 'example',
-    Default = 'example',
-})
+ConfigGroup:AddButton('Save', function()
+		local name = SaveManager.CurrentConfig or Options.SaveManager_ConfigName.Value;
+		if not name or name == '' then
+			return Library:Notify('Enter a config name first', 3);
+		end;
+		local success, err = SaveManager:Save(name);
+		if success then
+			Library:Notify(string.format('Config %q saved', name));
+			SaveManager:RefreshConfigList();
+		else
+			Library:Notify('Save failed: ' .. tostring(err), 3);
+		end;
+	end);
+
+ConfigGroup:AddButton('Load', function()
+		local name = SaveManager.CurrentConfig or Options.SaveManager_ConfigList.Value;
+		if not name then
+			return Library:Notify('Select a config first', 3);
+		end;
+		local success, err = SaveManager:Load(name);
+		if success then
+			Library:Notify(string.format('Config %q loaded', name));
+		else
+			Library:Notify('Load failed: ' .. tostring(err), 3);
+		end;
+	end);
+
+ConfigGroup:AddButton('Refresh list', function()
+		local list = SaveManager:RefreshConfigList();
+		if Options.SaveManager_ConfigList then
+			Options.SaveManager_ConfigList:SetValues(list);
+		end;
+		Library:Notify('Config list refreshed');
+	end);
+
+ConfigGroup:AddDivider()
+
+ConfigGroup:AddButton('Export config', function()
+		local text = SaveManager:ExportConfig();
+		Library:Notify('Exported ' .. #text .. ' characters');
+		print(text);
+	end);
+
+ConfigGroup:AddButton('Import config', function()
+		local text = SaveManager:ExportConfig();
+		local success, err = SaveManager:ImportConfig(text);
+		if not success then
+			return Library:Notify('Import failed: ' .. tostring(err), 3);
+		end;
+		Library:Notify('Config re-imported successfully');
+	end);
+
+ConfigGroup:AddDivider()
 
 ConfigGroup:AddButton('Delete config file', function()
-    local name = Options.Example_ConfigName.Value
-    local ok = pcall(function()
-        delfile(STORAGE_FOLDER .. '/settings/' .. name .. '.json')
-    end)
-    Library:Notify(ok and ('Deleted "' .. name .. '"') or 'Delete failed', ok and 2 or 3)
-end)
+		local name = Options.SaveManager_ConfigName.Value;
+		local ok = pcall(function()
+			delfile(STORAGE_FOLDER .. '/settings/' .. name .. '.json');
+		end);
+		Library:Notify(ok and ('Deleted "' .. name .. '"') or 'Delete failed', ok and 2 or 3);
+	end);
 
 ConfigGroup:AddDivider()
 
-SaveManager:LoadAutoloadConfig()
+SaveManager:LoadAutoloadConfig();
 
 task.defer(function()
-    ThemeManager:ApplyTheme('Default')
-end)
-
-----------------------------------------------------------------------
--- CLEANUP
-----------------------------------------------------------------------
-
-Library:OnUnload(function()
-    print('[Linoria] example unloaded')
-end)
-
+		ThemeManager:ApplyTheme('Default');
+	end);
 print('[Linoria] example loaded — press RightControl to open the menu')
