@@ -70,6 +70,10 @@ local SaveManager = {} do
 		self:BuildFolderTree()
 	end
 
+	function SaveManager:SetLibrary(library)
+		self.Library = library
+	end
+
 	function SaveManager:Save(name)
 		if (not name) then
 			return false, 'no config file is selected';
