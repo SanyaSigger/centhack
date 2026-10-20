@@ -668,7 +668,7 @@ do
 
         local ColorPicker = {
             Value = Info.Default;
-            Transparency = Info.Transparency or 0;
+            Transparency = tonumber(Info.Transparency) or 0;
             Type = 'ColorPicker';
             Title = type(Info.Title) == 'string' and Info.Title or 'Color picker',
             Callback = Info.Callback or function(Color) end;
@@ -1139,13 +1139,13 @@ do
         function ColorPicker:SetValue(HSV, Transparency)
             local Color = Color3.fromHSV(HSV[1], HSV[2], HSV[3]);
 
-            ColorPicker.Transparency = Transparency or 0;
+            ColorPicker.Transparency = tonumber(Transparency) or 0;
             ColorPicker:SetHSVFromRGB(Color);
             ColorPicker:Display();
         end;
 
         function ColorPicker:SetValueRGB(Color, Transparency)
-            ColorPicker.Transparency = Transparency or 0;
+            ColorPicker.Transparency = tonumber(Transparency) or 0;
             ColorPicker:SetHSVFromRGB(Color);
             ColorPicker:Display();
         end;
