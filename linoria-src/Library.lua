@@ -1340,6 +1340,39 @@ do
         });
     end;
 
+
+    -- AddColorPicker(Idx, Info)
+    function Funcs:AddColorPicker(Idx, Info)
+        local Groupbox = self;
+        local Container = Groupbox.Container;
+
+        assert(Info.Default, 'AddColorPicker: Missing default value.');
+
+        local ColorPicker = {
+            Value = Info.Default;
+            Transparency = tonumber(Info.Transparency) or 0;
+            Type = 'ColorPicker';
+            Title = type(Info.Title) == 'string' and Info.Title or 'Color picker';
+            Callback = Info.Callback or function(Color) end;
+        };
+
+        -- Create label first
+        local Label = Groupbox:AddLabel(Info.Title or 'Color picker');
+
+        -- Call first Funcs.AddColorPicker directly on Label (bypassing __namecall)
+        -- to ensure self is passed correctly
+        local mt = getmetatable(Label);
+        if mt and mt.__index and mt.__index.AddColorPicker then
+            mt.__index.AddColorPicker(Label, Idx, Info);
+        end;
+
+        Groupbox:AddBlank(5);
+        Groupbox:Resize();
+
+        Options[Idx] = ColorPicker;
+
+        return ColorPicker;
+    end;
     -- AddLabel(Text, DoesWrap?)
     -- AddLabel({ Text = '...', DoesWrap = bool, TextColor = Color3 })
     function Funcs:AddLabel(Text, DoesWrap)
