@@ -3319,18 +3319,23 @@ function Library:CreateWindow(...)
             TabButton.BackgroundColor3 = Library.MainColor;
             Library.RegistryMap[TabButton].Properties.BackgroundColor3 = 'MainColor';
 
-            -- Fade in animation
+            -- Black screen delay before content appears
             TabFrame.Visible = true;
-            TabFrame.BackgroundTransparency = 1;
-            local fadeConn;
-            fadeConn = RunService.Heartbeat:Connect(function(dt)
-                local t = TabFrame.BackgroundTransparency - dt * 2;
-                if t <= 0 then
-                    TabFrame.BackgroundTransparency = 0;
-                    fadeConn:Disconnect();
-                else
-                    TabFrame.BackgroundTransparency = t;
-                end
+            TabFrame.BackgroundColor3 = Color3.new(0, 0, 0);
+            TabFrame.BackgroundTransparency = 0;
+
+            task.delay(0.5, function()
+                if not TabFrame or not TabFrame.Visible then return end;
+                local fadeConn;
+                fadeConn = RunService.Heartbeat:Connect(function(dt)
+                    local t = TabFrame.BackgroundTransparency + dt * 2;
+                    if t >= 1 then
+                        TabFrame.BackgroundTransparency = 1;
+                        fadeConn:Disconnect();
+                    else
+                        TabFrame.BackgroundTransparency = t;
+                    end
+                end);
             end);
         end;
 
