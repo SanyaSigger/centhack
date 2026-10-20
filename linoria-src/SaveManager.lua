@@ -215,4 +215,6 @@ local SaveManager = {} do
 		end
 	end
 
+end
+
 return SaveManager
