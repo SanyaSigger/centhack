@@ -33,8 +33,8 @@ local Library = {
     MainColor = Color3.fromRGB(28, 28, 28);
     BackgroundColor = Color3.fromRGB(20, 20, 20);
     AccentColor1 = Color3.fromRGB(0, 85, 255);
-    AccentColor2 = Color3.fromRGB(0, 85, 255);
-    UseGradient = false;
+    AccentColor2 = Color3.fromRGB(190, 40, 240);
+    UseGradient = true;
     GradientDirection = 'Horizontal';
     OutlineColor = Color3.fromRGB(50, 50, 50);
     RiskColor = Color3.fromRGB(255, 50, 50),
@@ -403,7 +403,7 @@ function Library:ApplyAccentGradient(instance)
 
     local existingGrad = instance:FindFirstChildOfClass('UIGradient');
 
-    if not Library.UseGradient or Library:ColorsEqual(Library.AccentColor1, Library.AccentColor2) then
+    if Library:ColorsEqual(Library.AccentColor1, Library.AccentColor2) then
         if existingGrad then
             Library:RemoveFromRegistry(existingGrad);
             existingGrad:Destroy();
@@ -527,7 +527,7 @@ function Library:UpdateGradients()
         local Instance = Object.Instance;
 
         if Instance:IsA('UIGradient') then
-            if not Library.UseGradient or Library:ColorsEqual(Library.AccentColor1, Library.AccentColor2) then
+            if Library:ColorsEqual(Library.AccentColor1, Library.AccentColor2) then
                 Library:RemoveFromRegistry(Instance);
                 Instance:Destroy();
             else
@@ -2054,12 +2054,6 @@ do
             Toggle.Value = Bool;
             Toggle:Display();
 
-            for _, Addon in next, Toggle.Addons do
-                if Addon.Type == 'KeyPicker' and Addon.SyncToggleState then
-                    Addon.Toggled = Bool
-                    Addon:Update()
-                end
-            end
 
             Library:SafeCallback(Toggle.Callback, Toggle.Value);
             Library:SafeCallback(Toggle.Changed, Toggle.Value);
@@ -3129,7 +3123,7 @@ function Library:CreateWindow(...)
     };
     local Outer = Library:Create('Frame', {
         AnchorPoint = Config.AnchorPoint;
-        BackgroundColor3 = Library.BackgroundColor;
+        BackgroundColor3 = Color3.new(0, 0, 0);
         BorderColor3 = Library.OutlineColor;
         Position = Config.Position;
         Size = Config.Size;
@@ -3138,16 +3132,49 @@ function Library:CreateWindow(...)
         Parent = ScreenGui;
     });
 
-    Library:MakeDraggable(Outer, 25);
+    Library:AddToRegistry(Outer, {
+        BorderColor3 = 'OutlineColor';
+    });
+
+    local Main = Library:Create('Frame', {
+        BackgroundColor3 = Library.BackgroundColor;
+        BorderColor3 = Library.OutlineColor;
+        BorderMode = Enum.BorderMode.Inset;
+        Position = UDim2.new(0, 1, 0, 1);
+        Size = UDim2.new(1, -2, 1, -2);
+        ZIndex = 2;
+        Parent = Outer;
+    });
+
+    Library:AddToRegistry(Main, {
+        BackgroundColor3 = 'BackgroundColor';
+        BorderColor3 = 'OutlineColor';
+    });
+
+    Library:MakeDraggable(Outer, 30);
+
+    local AccentLine = Library:Create('Frame', {
+        BackgroundColor3 = Library.AccentColor1;
+        BorderSizePixel = 0;
+        Position = UDim2.new(0, 4, 0, 0);
+        Size = UDim2.new(1, -8, 0, 2);
+        ZIndex = 3;
+        Parent = Main;
+    });
+
+    Library:ApplyAccentGradient(AccentLine);
+    Library:AddToRegistry(AccentLine, {
+        BackgroundColor3 = 'AccentColor1';
+    });
 
     local WindowLabel = Library:CreateLabel({
-        Position = UDim2.new(0, 0, 0, 4);
+        Position = UDim2.new(0, 0, 0, 6);
         Size = UDim2.new(1, 0, 0, 24);
         Text = Config.Title or '';
         TextXAlignment = Enum.TextXAlignment.Center;
         TextSize = 14;
-        ZIndex = 2;
-        Parent = Outer;
+        ZIndex = 3;
+        Parent = Main;
     });
 
     Library:AddToRegistry(WindowLabel, {
@@ -3156,10 +3183,10 @@ function Library:CreateWindow(...)
 
     local TabArea = Library:Create('Frame', {
         BackgroundTransparency = 1;
-        Position = UDim2.new(0, 0, 0, 28);
-        Size = UDim2.new(1, 0, 0, 22);
-        ZIndex = 2;
-        Parent = Outer;
+        Position = UDim2.new(0, 8, 0, 34);
+        Size = UDim2.new(1, -16, 0, 22);
+        ZIndex = 3;
+        Parent = Main;
     });
 
     local TabListLayout = Library:Create('UIListLayout', {
@@ -3172,10 +3199,10 @@ function Library:CreateWindow(...)
     local TabContainer = Library:Create('Frame', {
         BackgroundColor3 = Library.MainColor;
         BorderColor3 = Library.OutlineColor;
-        Position = UDim2.new(0, 0, 0, 52);
-        Size = UDim2.new(1, 0, 1, -52);
-        ZIndex = 2;
-        Parent = Outer;
+        Position = UDim2.new(0, 8, 0, 60);
+        Size = UDim2.new(1, -16, 1, -68);
+        ZIndex = 3;
+        Parent = Main;
     });
 
     Library:AddToRegistry(TabContainer, {
@@ -3243,8 +3270,8 @@ function Library:CreateWindow(...)
         local LeftSide = Library:Create('ScrollingFrame', {
             BackgroundTransparency = 1;
             BorderSizePixel = 0;
-            Position = UDim2.new(0, 8 - 1, 0, 8 - 1);
-            Size = UDim2.new(0.5, -12 + 2, 0, 507 + 2);
+            Position = UDim2.new(0, 16, 0, 10);
+            Size = UDim2.new(0.5, -24, 0, 507 + 2);
             CanvasSize = UDim2.new(0, 0, 0, 0);
             BottomImage = '';
             TopImage = '';
@@ -3256,8 +3283,8 @@ function Library:CreateWindow(...)
         local RightSide = Library:Create('ScrollingFrame', {
             BackgroundTransparency = 1;
             BorderSizePixel = 0;
-            Position = UDim2.new(0.5, 4 + 1, 0, 8 - 1);
-            Size = UDim2.new(0.5, -12 + 2, 0, 507 + 2);
+            Position = UDim2.new(0.5, 8, 0, 10);
+            Size = UDim2.new(0.5, -24, 0, 507 + 2);
             CanvasSize = UDim2.new(0, 0, 0, 0);
             BottomImage = '';
             TopImage = '';
@@ -3318,7 +3345,8 @@ function Library:CreateWindow(...)
                 BackgroundColor3 = Library.BackgroundColor;
                 BorderColor3 = Library.OutlineColor;
                 -- BorderMode = Enum.BorderMode.Inset;
-                Size = UDim2.new(1, 0, 0, 507 + 2);
+                Position = UDim2.new(0, 8, 0, 0);
+                Size = UDim2.new(1, -16, 0, 507 + 2);
                 ZIndex = 2;
                 Parent = Info.Side == 1 and LeftSide or RightSide;
             });

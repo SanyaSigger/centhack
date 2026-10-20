@@ -60,14 +60,14 @@ local ThemeManager = {} do
 	ThemeManager.Library = nil
 	ThemeManager.FontNames = GetAvailableFontNames()
 	ThemeManager.BuiltInThemes = {
-		['Default'] 		= { 1, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"1c1c1c","AccentColor1":"0055ff","AccentColor2":"0055ff","UseGradient":false,"BackgroundColor":"141414","OutlineColor":"323232"}') },
-		['BBot'] 			= { 2, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"1e1e1e","AccentColor1":"7e48a3","AccentColor2":"7e48a3","UseGradient":false,"BackgroundColor":"232323","OutlineColor":"141414"}') },
-		['Fatality']		= { 3, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"1e1842","AccentColor1":"c50754","AccentColor2":"c50754","UseGradient":false,"BackgroundColor":"191335","OutlineColor":"3c355d"}') },
-		['Jester'] 			= { 4, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"242424","AccentColor1":"db4467","AccentColor2":"db4467","UseGradient":false,"BackgroundColor":"1c1c1c","OutlineColor":"373737"}') },
-		['Mint'] 			= { 5, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"242424","AccentColor1":"3db488","AccentColor2":"3db488","UseGradient":false,"BackgroundColor":"1c1c1c","OutlineColor":"373737"}') },
-		['Tokyo Night'] 	= { 6, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"191925","AccentColor1":"6759b3","AccentColor2":"6759b3","UseGradient":false,"BackgroundColor":"16161f","OutlineColor":"323232"}') },
-		['Ubuntu'] 			= { 7, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"3e3e3e","AccentColor1":"e2581e","AccentColor2":"e2581e","UseGradient":false,"BackgroundColor":"323232","OutlineColor":"191919"}') },
-		['Quartz'] 			= { 8, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"232330","AccentColor1":"426e87","AccentColor2":"426e87","UseGradient":false,"BackgroundColor":"1d1b26","OutlineColor":"27232f"}') },
+		['Default'] 		= { 1, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"1c1c1c","AccentColor1":"0055ff","AccentColor2":"be28f0","UseGradient":true,"GradientDirection":"Horizontal","BackgroundColor":"141414","OutlineColor":"323232"}') },
+		['BBot'] 			= { 2, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"1e1e1e","AccentColor1":"7e48a3","AccentColor2":"3b82f6","UseGradient":true,"GradientDirection":"Horizontal","BackgroundColor":"232323","OutlineColor":"141414"}') },
+		['Fatality']		= { 3, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"1e1842","AccentColor1":"c50754","AccentColor2":"7c3aed","UseGradient":true,"GradientDirection":"Horizontal","BackgroundColor":"191335","OutlineColor":"3c355d"}') },
+		['Jester'] 			= { 4, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"242424","AccentColor1":"db4467","AccentColor2":"f59e0b","UseGradient":true,"GradientDirection":"Horizontal","BackgroundColor":"1c1c1c","OutlineColor":"373737"}') },
+		['Mint'] 			= { 5, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"242424","AccentColor1":"3db488","AccentColor2":"22d3ee","UseGradient":true,"GradientDirection":"Horizontal","BackgroundColor":"1c1c1c","OutlineColor":"373737"}') },
+		['Tokyo Night'] 	= { 6, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"191925","AccentColor1":"6759b3","AccentColor2":"38bdf8","UseGradient":true,"GradientDirection":"Horizontal","BackgroundColor":"16161f","OutlineColor":"323232"}') },
+		['Ubuntu'] 			= { 7, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"3e3e3e","AccentColor1":"e2581e","AccentColor2":"facc15","UseGradient":true,"GradientDirection":"Horizontal","BackgroundColor":"323232","OutlineColor":"191919"}') },
+		['Quartz'] 			= { 8, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"232330","AccentColor1":"426e87","AccentColor2":"a78bfa","UseGradient":true,"GradientDirection":"Horizontal","BackgroundColor":"1d1b26","OutlineColor":"27232f"}') },
 	}
 
 	function ThemeManager:ThemeUpdate()
@@ -97,13 +97,12 @@ local ThemeManager = {} do
 				local color = self.Library:ColorFromHex(col)
 				self.Library[idx] = color
 				
-				if Options[idx] then
-					Options[idx]:SetValueRGB(color)
+				local opt = Options[idx]
+				if opt and opt.SetValueRGB then
+					pcall(opt.SetValueRGB, opt, color)
 				end
 			elseif idx == 'UseGradient' then
-				if Toggles.ThemeManager_UseGradient then
-					Toggles.ThemeManager_UseGradient:SetValue(col == true or col == 'true')
-				end
+				self.Library.UseGradient = true
 			elseif idx == 'GradientDirection' then
 				if Options.ThemeManager_GradientDirection then
 					Options.ThemeManager_GradientDirection:SetValue(col)
@@ -150,22 +149,71 @@ local ThemeManager = {} do
 	end
 
 	function ThemeManager:CreateThemeManager(groupbox)
-		groupbox:AddColorPicker('BackgroundColor', { Title = 'Background color', Default = self.Library.BackgroundColor });
-		groupbox:AddColorPicker('MainColor', { Title = 'Main color', Default = self.Library.MainColor });
-		groupbox:AddColorPicker('AccentColor1', { Title = 'Accent color 1', Default = self.Library.AccentColor1 });
-		groupbox:AddColorPicker('AccentColor2', { Title = 'Accent color 2', Default = self.Library.AccentColor2 });
-		groupbox:AddToggle('ThemeManager_UseGradient', {
-			Text = 'Use accent gradient';
-			Default = not self.Library:ColorsEqual(self.Library.AccentColor1, self.Library.AccentColor2);
+		groupbox:AddColorPicker('BackgroundColor', {
+			Title = 'Background color';
+			Text = 'Background color';
+			Default = self.Library.BackgroundColor;
+			Callback = function(Value)
+				self.Library.BackgroundColor = Value;
+				UpdateTheme();
+			end;
+		});
+		groupbox:AddColorPicker('MainColor', {
+			Title = 'Main color';
+			Text = 'Main color';
+			Default = self.Library.MainColor;
+			Callback = function(Value)
+				self.Library.MainColor = Value;
+				UpdateTheme();
+			end;
+		});
+		groupbox:AddLabel('Accent colors (gradient always on)')
+		groupbox:AddColorPicker('AccentColor1', {
+			Title = 'Accent start';
+			Text = 'Gradient start';
+			Default = self.Library.AccentColor1;
+			Callback = function(Value)
+				self.Library.AccentColor1 = Value;
+				UpdateTheme();
+			end;
+		});
+		groupbox:AddColorPicker('AccentColor2', {
+			Title = 'Accent end';
+			Text = 'Gradient end';
+			Default = self.Library.AccentColor2;
+			Callback = function(Value)
+				self.Library.AccentColor2 = Value;
+				UpdateTheme();
+			end;
 		});
 		groupbox:AddLabel('Gradient direction')
 		groupbox:AddDropdown('ThemeManager_GradientDirection', {
 			Text = 'Direction';
 			Values = {'Horizontal', 'Vertical' };
 			Default = self.Library.GradientDirection;
+			Callback = function(Value)
+				self.Library.GradientDirection = Value;
+				UpdateTheme();
+			end;
 		});
-		groupbox:AddColorPicker('OutlineColor', { Title = 'Outline color', Default = self.Library.OutlineColor });
-		groupbox:AddColorPicker('FontColor', { Title = 'Font color', Default = self.Library.FontColor });
+		groupbox:AddColorPicker('OutlineColor', {
+			Title = 'Outline color';
+			Text = 'Outline color';
+			Default = self.Library.OutlineColor;
+			Callback = function(Value)
+				self.Library.OutlineColor = Value;
+				UpdateTheme();
+			end;
+		});
+		groupbox:AddColorPicker('FontColor', {
+			Title = 'Font color';
+			Text = 'Font color';
+			Default = self.Library.FontColor;
+			Callback = function(Value)
+				self.Library.FontColor = Value;
+				UpdateTheme();
+			end;
+		});
 
 
 
@@ -176,6 +224,12 @@ local ThemeManager = {} do
 			Text = 'Font';
 			Values = self.FontNames;
 			Default = self.Library.FontName or 'Code';
+			Callback = function(Value)
+				self.Library.FontName = Value;
+				local ok, font = pcall(function() return Enum.Font[Value] end);
+				self.Library.Font = (ok and font) or Enum.Font.Code;
+				UpdateTheme();
+			end;
 		});
 
 		groupbox:AddSlider('ThemeManager_FontSize', {
@@ -184,6 +238,10 @@ local ThemeManager = {} do
 			Min = 8;
 			Max = 32;
 			Rounding = 0;
+			Callback = function(Value)
+				self.Library.FontSize = Value;
+				UpdateTheme();
+			end;
 		});
 
 		groupbox:AddDivider()
@@ -251,12 +309,11 @@ local ThemeManager = {} do
 		BindChanged(Options.MainColor, UpdateTheme)
 		BindChanged(Options.AccentColor1, UpdateTheme)
 		BindChanged(Options.AccentColor2, UpdateTheme)
-		BindChanged(Toggles.ThemeManager_UseGradient, UpdateTheme)
 		BindChanged(Options.OutlineColor, UpdateTheme)
 		BindChanged(Options.FontColor, UpdateTheme)
 		BindChanged(Options.ThemeManager_FontName, UpdateTheme)
 		BindChanged(Options.ThemeManager_FontSize, UpdateTheme)
-		BindChanged(Toggles.ThemeManager_GradientDirection, UpdateTheme)
+		BindChanged(Options.ThemeManager_GradientDirection, UpdateTheme)
 
 	end
 	function ThemeManager:GetCustomTheme(file)
@@ -289,10 +346,7 @@ local ThemeManager = {} do
 			end
 		end
 
-		if Toggles.ThemeManager_UseGradient then
-			theme.UseGradient = Toggles.ThemeManager_UseGradient.Value and true or false
-
-		end
+		theme.UseGradient = true
 
 		-- Gradient direction
 		if Options.ThemeManager_GradientDirection then
