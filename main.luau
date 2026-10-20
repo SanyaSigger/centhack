@@ -8,90 +8,94 @@
 --
 -- UI FUNCTION REFERENCE
 -- ---------------------
--- Library.CreateWindow({ Title, Center, Size })
---   Creates the main window. Returns Window object.
+-- Library.CreateWindow(Config: table) -> Window
+--   Creates the main window.
+--   Config fields: AnchorPoint: Vector2, Position: UDim2, Size: UDim2,
+--                  Title: string, Center: bool
 --
--- Window:AddTab(Name)
+-- Window:AddTab(Name: string) -> Tab
 --   Adds a tab. Returns Tab object.
 --
--- Tab:AddLeftGroupbox(Name) / Tab:AddRightGroupbox(Name)
---   Adds a groupbox on the left or right column. Returns Groupbox object.
+-- Tab:AddLeftGroupbox(Name: string) -> Groupbox
+-- Tab:AddRightGroupbox(Name: string) -> Groupbox
+--   Adds a groupbox on the left or right column.
 --
--- Tab:AddTabbox({ Side, Name }) / Tabbox:AddTab(Name)
---   Adds a nested tabbox. Returns Tabbox object; Tabbox:AddTab returns Tab.
+-- Tab:AddTabbox({ Side: number, Name: string }) -> Tabbox
+--   Adds a nested tabbox. Returns Tabbox object.
+-- Tabbox:AddTab(Name: string) -> Tab
+--   Adds a tab inside the tabbox.
 --
--- Groupbox:AddLabel(Text, DoesWrap?)
+-- Groupbox:AddLabel(Text: string, DoesWrap: bool?)
 --   Adds a text label.
 --
--- Groupbox:AddToggle(Idx, { Text, Default, Callback })
---   Adds a checkbox toggle. Returns Toggle object (has :SetValue(), :OnChanged()).
+-- Groupbox:AddToggle(Idx: string, { Text: string, Default: bool, Callback: function })
+--   -> Toggle (has :SetValue(bool), :OnChanged(function))
 --
--- Groupbox:AddSlider(Idx, { Text, Default, Min, Max, Rounding, Suffix, Callback })
---   Adds a slider. Returns Slider object.
+-- Groupbox:AddSlider(Idx: string, { Text: string, Default: number, Min: number,
+--   Max: number, Rounding: number, Suffix: string, Callback: function(number) })
+--   -> Slider
 --
--- Groupbox:AddDropdown(Idx, { Text, Values, Default, AllowNull, Callback })
---   Adds a dropdown. Returns Dropdown object.
+-- Groupbox:AddDropdown(Idx: string, { Text: string, Values: table, Default: any,
+--   AllowNull: bool, Callback: function(any) })
+--   -> Dropdown
 --
--- Groupbox:AddInput(Idx, { Text, Placeholder, Default, Finished, Callback })
---   Adds a text input box. Returns Input object.
+-- Groupbox:AddInput(Idx: string, { Text: string, Placeholder: string, Default: string,
+--   Finished: bool, Callback: function(string) })
+--   -> Input
 --
--- Groupbox:AddButton(Text, Callback)
+-- Groupbox:AddButton(Text: string, Callback: function())
 --   Adds a button.
 --
 -- Groupbox:AddDivider()
 --   Adds a horizontal divider line.
 --
--- Groupbox:AddBlank(Size)
+-- Groupbox:AddBlank(Size: number)
 --   Adds vertical blank space.
 --
 -- Groupbox:AddDependencyBox()
---   Adds a dependency box (shows/hides based on another element's state).
---   Returns DependencyBox object with :SetupDependencies({{Elem, Value}}).
+--   Adds a dependency box. Returns DependencyBox with :SetupDependencies({{Elem: object, Value: any}}).
 --
--- Groupbox:AddColorPicker(Idx, { Default, Transparency, Title, Callback })
---   Adds a color picker (on Groupbox). Returns ColorPicker object.
+-- Groupbox:AddColorPicker(Idx: string, { Default: Color3, Transparency: number,
+--   Title: string, Callback: function(Color3) })
+--   -> ColorPicker (has :SetValueRGB(Color3))
 --
--- Label:AddColorPicker(Idx, { Default, Transparency, Title, Callback })
---   Adds a color picker on a Label (returned by AddLabel).
+-- Label:AddColorPicker(Idx, {...}) / Toggle:AddColorPicker(Idx, {...})
+--   Adds a color picker on a Label or Toggle.
 --
--- Toggle:AddColorPicker(Idx, { Default, Transparency, Title, Callback })
---   Adds a color picker on a Toggle.
+-- Toggle:AddKeyPicker(Idx: string, { Text: string, Default: string, Callback: function })
+--   -> KeyPicker
+-- Label:AddKeyPicker(Idx, {...})
 --
--- Toggle:AddKeyPicker(Idx, { Text, Default, Callback })
---   Adds a keybind picker on a Toggle. Returns KeyPicker object.
---
--- Label:AddKeyPicker(Idx, { Text, Default, Callback })
---   Adds a keybind picker on a Label.
---
--- Toggle:OnChanged(Func) / KeyPicker:OnChanged(Func) / ColorPicker:OnChanged(Func)
+-- Toggle:OnChanged(Func: function) / KeyPicker:OnChanged(Func) / ColorPicker:OnChanged(Func)
 --   Registers a value-change callback.
 --
--- Library:Notify(Text, Time)
+-- Library:Notify(Text: string, Time: number)
 --   Shows a notification toast.
 --
--- Library:SetWatermark(Text) / Library:SetWatermarkVisibility(Bool)
+-- Library:SetWatermark(Text: string) / Library:SetWatermarkVisibility(Bool: bool)
 --   Sets/shows-hides the top-left watermark.
 --
--- Library:SetWindowTitle(Title)
+-- Library:SetWindowTitle(Title: string)
 --   Changes the window title at runtime.
 --
 -- Library:Unload()
 --   Unloads the entire library (destroys all UI).
 --
--- Library:OnUnload(Callback)
+-- Library:OnUnload(Callback: function())
 --   Registers a callback to run when the library unloads.
 --
--- Library:CreateLabel({ Text, TextSize, TextColor3, Parent })
+-- Library:CreateLabel({ Text: string, TextSize: number, TextColor3: Color3,
+--   Parent: Instance })
 --   Creates a standalone drawing label.
 --
--- Library:Create(Class, Properties)
+-- Library:Create(Class: string, Properties: table)
 --   Creates a raw Instance.
 --
--- Library:AddToRegistry(Instance, Properties)
+-- Library:AddToRegistry(Instance: Instance, Properties: table)
 --   Registers an instance for automatic theme color updates.
 --
--- Library:GiveSignal(Signal)
---   Registers a RBXScriptSignal for cleanup on unload.
+-- Library:GiveSignal(Signal: RBXScriptSignal)
+--   Registers a signal for cleanup on unload.
 -- ============================================================================
 
 local REPO = 'https://raw.githubusercontent.com/SanyaSigger/centhack/main/linoria-src/'
@@ -133,7 +137,7 @@ CombatLeft:AddLabel('Silent Aim')
 CombatLeft:AddToggle('SilentAimEnabled', {
     Text = 'Enabled',
     Default = false,
-    Callback = function(v)
+    Callback = function(v: boolean)
         print('Silent Aim:', v)
     end,
 })
@@ -244,5 +248,22 @@ PlayerRight:AddDropdown('HitsoundSelect', {
 Library:OnUnload(function()
     print('[centhack] main unloaded')
 end)
+
+-- Animated title: pulse text size every 0.5 seconds
+local RunService = game:GetService('RunService')
+local WindowLabel = Window:FindFirstChild('WindowLabel', true)
+if WindowLabel then
+    local baseSize = 20
+    local pulseTime = 0
+    RunService.Heartbeat:Connect(function(dt)
+        pulseTime = pulseTime + dt
+        if pulseTime >= 0.5 then
+            pulseTime = 0
+            local current = WindowLabel.TextSize
+            local target = (current == baseSize) and baseSize + 4 or baseSize
+            WindowLabel.TextSize = target
+        end
+    end)
+end
 
 print('[centhack] main loaded — press RightControl to open the menu')
