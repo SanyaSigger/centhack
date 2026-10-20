@@ -3311,8 +3311,10 @@ function Library:CreateWindow(...)
         end;
 
         function Tab:ShowTab()
-            for _, Tab in next, Window.Tabs do
-                Tab:HideTab();
+            for _, otherTab in next, Window.Tabs do
+                if otherTab ~= self then
+                    otherTab:HideTab();
+                end;
             end;
 
             Blocker.BackgroundTransparency = 0;
