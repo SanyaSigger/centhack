@@ -70,6 +70,11 @@ local ThemeManager = {} do
 		['Quartz'] 			= { 8, httpService:JSONDecode('{"FontColor":"ffffff","MainColor":"232330","AccentColor1":"426e87","AccentColor2":"426e87","UseGradient":false,"BackgroundColor":"1d1b26","OutlineColor":"27232f"}') },
 	}
 
+	function ThemeManager:ThemeUpdate()
+		self.Library:UpdateColorsUsingRegistry()
+		self.Library:UpdateGradients()
+	end
+
 	function ThemeManager:ApplyTheme(theme)
 		local customThemeData = self:GetCustomTheme(theme)
 		local data = customThemeData or self.BuiltInThemes[theme]
@@ -145,10 +150,14 @@ local ThemeManager = {} do
 	end
 
 	function ThemeManager:CreateThemeManager(groupbox)
-		groupbox:AddLabel('Background color'):AddColorPicker('BackgroundColor', { Default = self.Library.BackgroundColor });
-		groupbox:AddLabel('Main color')	:AddColorPicker('MainColor', { Default = self.Library.MainColor });
-		groupbox:AddLabel('Accent color 1'):AddColorPicker('AccentColor1', { Default = self.Library.AccentColor1 });
-		groupbox:AddLabel('Accent color 2'):AddColorPicker('AccentColor2', { Default = self.Library.AccentColor2 });
+		groupbox:AddLabel('Background color')
+		groupbox:AddColorPicker('BackgroundColor', { Default = self.Library.BackgroundColor });
+		groupbox:AddLabel('Main color')
+		groupbox:AddColorPicker('MainColor', { Default = self.Library.MainColor });
+		groupbox:AddLabel('Accent color 1')
+		groupbox:AddColorPicker('AccentColor1', { Default = self.Library.AccentColor1 });
+		groupbox:AddLabel('Accent color 2')
+		groupbox:AddColorPicker('AccentColor2', { Default = self.Library.AccentColor2 });
 		groupbox:AddToggle('ThemeManager_UseGradient', {
 			Text = 'Use accent gradient';
 			Default = not self.Library:ColorsEqual(self.Library.AccentColor1, self.Library.AccentColor2);
@@ -159,8 +168,10 @@ local ThemeManager = {} do
 			Values = {'Horizontal', 'Vertical' };
 			Default = self.Library.GradientDirection;
 		});
-		groupbox:AddLabel('Outline color'):AddColorPicker('OutlineColor', { Default = self.Library.OutlineColor });
-		groupbox:AddLabel('Font color')	:AddColorPicker('FontColor', { Default = self.Library.FontColor });
+		groupbox:AddLabel('Outline color')
+		groupbox:AddColorPicker('OutlineColor', { Default = self.Library.OutlineColor });
+		groupbox:AddLabel('Font color')
+		groupbox:AddColorPicker('FontColor', { Default = self.Library.FontColor });
 
 
 

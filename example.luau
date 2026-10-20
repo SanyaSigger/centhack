@@ -51,8 +51,7 @@
   Library globals:
     Library.AccentColor1 / AccentColor2 / UseGradient
     Library.FontName / Font / FontSize
-    Library.BackgroundImage / BackgroundImageTransparency / BackgroundBlur
-    Library:Notify(Text, Time)
+        Library:Notify(Text, Time)
     Library:SetWatermark(Text) / Library:SetWatermarkVisibility(Bool)
     Library:SetWindowTitle(Title)        (on Window)
     Library:UpdateGradients() / Library:UpdateColorsUsingRegistry()
@@ -586,43 +585,6 @@ FontGroup:AddSlider('Style_FontSize', {
 
 FontGroup:AddDivider()
 
-FontGroup:AddLabel('Background image ID')
-FontGroup:AddInput('Style_BackgroundImage', {
-    Placeholder = 'rbxassetid://123456789',
-    Default = Library.BackgroundImage,
-    Callback = function(Value)
-        Library.BackgroundImage = Value
-    end,
-})
-
-FontGroup:AddSlider('Style_BackgroundTransparency', {
-    Text = 'Image transparency (%)',
-    Default = (Library.BackgroundImageTransparency or 0) * 100,
-    Min = 0,
-    Max = 100,
-    Rounding = 0,
-    Callback = function(Value)
-        Library.BackgroundImageTransparency = Value / 100
-    end,
-})
-
-FontGroup:AddSlider('Style_BackgroundBlur', {
-    Text = 'Blur (%)',
-    Default = (Library.BackgroundBlur or 0) / 24 * 100,
-    Min = 0,
-    Max = 100,
-    Rounding = 0,
-    Callback = function(Value)
-        Library.BackgroundBlur = Value / 100 * 24
-    end,
-})
-
-FontGroup:AddButton('Clear background', function()
-    Library.BackgroundImage = ''
-    Library.BackgroundImageTransparency = 0
-    Library.BackgroundBlur = 0
-    Library:Notify('Background cleared')
-end)
 
 ----------------------------------------------------------------------
 -- APPLY A BUILT-IN THEME
