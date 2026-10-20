@@ -205,6 +205,70 @@ function SaveManager:RefreshConfigList()
 	return out;
 end
 
+function SaveManager:BuildConfigSection(Tab)
+	local ConfigGroup = Tab:AddRightGroupbox('Configuration');
+
+	-- Config name input
+	ConfigGroup:AddInput('SaveManager_ConfigName', {
+		Text = 'Config name',
+		Placeholder = 'my_config',
+		Finished = true,
+		Callback = function(Value)
+			self.CurrentConfig = Value;
+		end,
+	});
+
+	-- Config dropdown
+	ConfigGroup:AddDropdown('SaveManager_ConfigList', {
+		Text = 'Saved configs',
+		Values = self:RefreshConfigList(),
+		AllowNull = true,
+		Callback = function(Value)
+			self.CurrentConfig = Value;
+		end,
+	});
+
+	-- Save button
+	ConfigGroup:AddButton('Save', function()
+		local name = self.CurrentConfig or Options.SaveManager_ConfigName.Value;
+		if not name or name == '' then
+			return self.Library:Notify('Enter a config name first', 3);
+		end;
+		local success, err = self:Save(name);
+		if success then
+			self.Library:Notify(string.format('Config %q saved', name));
+			self:RefreshConfigList();
+		else
+			self.Library:Notify('Save failed: ' .. tostring(err), 3);
+		end;
+	end);
+
+	-- Load button
+	ConfigGroup:AddButton('Load', function()
+		local name = self.CurrentConfig or Options.SaveManager_ConfigList.Value;
+		if not name then
+			return self.Library:Notify('Select a config first', 3);
+		end;
+		local success, err = self:Load(name);
+		if success then
+			self.Library:Notify(string.format('Config %q loaded', name));
+		else
+			self.Library:Notify('Load failed: ' .. tostring(err), 3);
+		end;
+	end);
+
+	-- Refresh button
+	ConfigGroup:AddButton('Refresh list', function()
+		local list = self:RefreshConfigList();
+		if Options.SaveManager_ConfigList then
+			Options.SaveManager_ConfigList:SetValues(list);
+		end;
+		self.Library:Notify('Config list refreshed');
+	end);
+
+	return ConfigGroup;
+end
+
 function SaveManager:LoadAutoloadConfig()
 	if isfile(self.Folder .. '/settings/autoload.txt') then
 		local name = readfile(self.Folder .. '/settings/autoload.txt');
