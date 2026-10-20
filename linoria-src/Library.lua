@@ -3155,7 +3155,7 @@ function Library:CreateWindow(...)
         BorderSizePixel = 0;
         Position = UDim2.new(0, 0, 0, 0);
         Size = UDim2.new(1, 0, 0, 2);
-        ZIndex = 3;
+        ZIndex = 2;
         Parent = Main;
     });
 
@@ -3165,8 +3165,8 @@ function Library:CreateWindow(...)
     });
 
     local WindowLabel = Library:CreateLabel({
-        Position = UDim2.new(0, 0, 0, 3);
-        Size = UDim2.new(1, 0, 0, 18);
+        Position = UDim2.new(0, 0, 0, 2);
+        Size = UDim2.new(1, 0, 0, 16);
         Text = Config.Title or '';
         TextXAlignment = Enum.TextXAlignment.Center;
         TextSize = 11;
@@ -3180,7 +3180,7 @@ function Library:CreateWindow(...)
 
     local TabArea = Library:Create('Frame', {
         BackgroundTransparency = 1;
-        Position = UDim2.new(0, 8, 0, 23);
+        Position = UDim2.new(0, 8, 0, 19);
         Size = UDim2.new(1, -16, 0, 20);
         ZIndex = 3;
         Parent = Main;
@@ -3196,8 +3196,8 @@ function Library:CreateWindow(...)
     local TabContainer = Library:Create('Frame', {
         BackgroundColor3 = Library.MainColor;
         BorderSizePixel = 0;
-        Position = UDim2.new(0, 8, 0, 45);
-        Size = UDim2.new(1, -16, 1, -47);
+        Position = UDim2.new(0, 8, 0, 41);
+        Size = UDim2.new(1, -16, 1, -43);
         ZIndex = 3;
         Parent = Main;
     });
