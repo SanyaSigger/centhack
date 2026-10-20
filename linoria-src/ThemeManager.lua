@@ -122,22 +122,6 @@ local ThemeManager = {} do
 	end
 
 
-		groupbox:AddDivider()
-		
-		groupbox:AddLabel('Gradient animation')
-		groupbox:AddToggle('ThemeManager_Move', {
-			Text = 'Move gradient';
-			Default = false;
-			Callback = function(Value)
-				ThemeManager.Moving = Value;
-				if Value then
-					ThemeManager.StartMove();
-				else
-					ThemeManager.StopMove();
-				end;
-			end;
-		});
-
 	function ThemeManager:LoadDefault()		
 		local theme = 'Default'
 		local content = isfile(self.Folder .. '/themes/default.txt') and readfile(self.Folder .. '/themes/default.txt')
@@ -315,6 +299,23 @@ local ThemeManager = {} do
 
 		ThemeManager:LoadDefault()
 
+
+
+		groupbox:AddDivider()
+		
+		groupbox:AddLabel('Gradient animation')
+		groupbox:AddToggle('ThemeManager_Move', {
+			Text = 'Move gradient';
+			Default = false;
+			Callback = function(Value)
+				ThemeManager.Moving = Value;
+				if Value then
+					ThemeManager.StartMove();
+				else
+					ThemeManager.StopMove();
+				end;
+			end;
+		});
 
 		end
 
