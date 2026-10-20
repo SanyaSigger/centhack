@@ -158,6 +158,7 @@ local ThemeManager = {} do
 			if obj and obj.OnChanged then
 				obj:OnChanged(callback)
 			end
+		end
 
 		groupbox:AddColorPicker('BackgroundColor', {
 			Title = 'Background color';
@@ -316,9 +317,6 @@ local ThemeManager = {} do
 				end;
 			end;
 		});
-
-		end
-
 
 	end
 	function ThemeManager:GetCustomTheme(file)

@@ -340,6 +340,13 @@ end
 
 Library = LoadLibraryFile('Library.lua')
 
+-- The theme / config addons are optional: if they fail to load the cheat
+-- still runs, it just loses theme switching and config saving.
+ThemeManager = nil
+SaveManager = nil
+pcall(function() ThemeManager = LoadLibraryFile('ThemeManager.lua') end)
+pcall(function() SaveManager = LoadLibraryFile('SaveManager.lua') end)
+
 -- The library publishes its option tables through getgenv(); keep local
 -- references so the feature code can use plain `Toggles` / `Options`.
 Toggles = getgenv().Toggles
@@ -820,7 +827,6 @@ silent_aim = {
     target_line_thickness = 1,
     tracer = false,
     tracer_style = "Tracer 1",
-    tracer_object = "beam",          -- beam | part
     tracer_color = Color3.new(1, 1, 1),
     tracer_color2 = Color3.new(0, 0.5, 1),
     tracer_thickness = 0.5,
@@ -904,6 +910,7 @@ ui = {
 
 ui.tabs = {
     combat = wrap_box(ui.window:AddTab('Combat'), "page"),
+    config = wrap_box(ui.window:AddTab('Config'), "page"),
 }
 
 local silent_aim_box = ui.tabs.combat:AddLeftGroupbox('SILENT AIM')
@@ -911,6 +918,8 @@ local visuals_box = ui.tabs.combat:AddLeftGroupbox('VISUALS')
 local gunmods_box = ui.tabs.combat:AddRightGroupbox('GUN MODS')
 local knife_box = ui.tabs.combat:AddRightGroupbox('KNIFE MODS')
 local tracer_box = ui.tabs.combat:AddRightGroupbox('VISUAL')
+
+local theme_box = ui.tabs.config:AddLeftGroupbox('THEME')
 
 ----------------------------------------------------------------------
 -- SILENT AIM UI
@@ -1119,6 +1128,13 @@ visuals_box:AddToggle('silentaim_fov_show', {
     Callback = function(v)
         silent_aim.fov_show = v
     end,
+}):AddColorPicker('silentaim_fov_color', {
+    Default = Color3.new(1, 1, 1),
+    Title = 'fov color',
+    Transparency = 0,
+    Callback = function(v)
+        silent_aim.fov_color = v
+    end,
 })
 
 visuals_box:AddSlider('silentaim_fov_size', {
@@ -1149,6 +1165,20 @@ visuals_box:AddToggle('silentaim_fov_fill', {
     Callback = function(v)
         silent_aim.fov_fill = v
     end,
+}):AddColorPicker('silentaim_fov_top_color', {
+    Default = Color3.fromRGB(140, 135, 180),
+    Title = 'top gradient color',
+    Transparency = 0,
+    Callback = function(v)
+        silent_aim.fov_top_color = v
+    end,
+}):AddColorPicker('silentaim_fov_bottom_color', {
+    Default = Color3.fromRGB(45, 45, 45),
+    Title = 'bottom gradient color',
+    Transparency = 0,
+    Callback = function(v)
+        silent_aim.fov_bottom_color = v
+    end,
 })
 
 visuals_box:AddSlider('silentaim_fov_fill_transparency', {
@@ -1169,6 +1199,13 @@ visuals_box:AddToggle('silentaim_fov_glow', {
     Default = false,
     Callback = function(v)
         silent_aim.fov_glow = v
+    end,
+}):AddColorPicker('silentaim_fov_outline_color', {
+    Default = Color3.fromRGB(140, 135, 180),
+    Title = 'glow color',
+    Transparency = 0,
+    Callback = function(v)
+        silent_aim.fov_outline_color = v
     end,
 })
 
@@ -1203,6 +1240,13 @@ visuals_box:AddToggle('silentaim_targetline', {
     Callback = function(v)
         silent_aim.target_line = v
     end,
+}):AddColorPicker('silentaim_targetline_color', {
+    Default = Color3.new(1, 1, 1),
+    Title = 'line color',
+    Transparency = 0,
+    Callback = function(v)
+        silent_aim.target_line_color = v
+    end,
 })
 
 visuals_box:AddToggle('qol_line_ends', {
@@ -1211,6 +1255,25 @@ visuals_box:AddToggle('qol_line_ends', {
     Tooltip = 'Small filled circles on both ends of the target line.',
     Callback = function(v)
         qol.line_ends = v
+    end,
+}):AddColorPicker('qol_line_end_color', {
+    Default = Color3.new(1, 1, 1),
+    Title = 'circle color',
+    Transparency = 0,
+    Callback = function(v)
+        qol.line_end_color = v
+    end,
+})
+
+visuals_box:AddSlider('qol_line_end_radius', {
+    Text = 'circle size',
+    Default = 3,
+    Min = 1,
+    Max = 20,
+    Rounding = 1,
+    Compact = true,
+    Callback = function(v)
+        qol.line_end_radius = v
     end,
 })
 
@@ -1228,6 +1291,13 @@ visuals_box:AddToggle('qol_line_outline', {
     Tooltip = 'Dark stroke drawn behind the target line so it reads on bright backgrounds.',
     Callback = function(v)
         qol.line_outline = v
+    end,
+}):AddColorPicker('qol_line_outline_color', {
+    Default = Color3.new(0, 0, 0),
+    Title = 'outline color',
+    Transparency = 0,
+    Callback = function(v)
+        qol.line_outline_color = v
     end,
 })
 
@@ -1391,26 +1461,30 @@ tracer_box:AddToggle('silentaim_tracer', {
     Callback = function(v)
         silent_aim.tracer = v
     end,
+}):AddColorPicker('silentaim_tracer_color', {
+    Default = Color3.new(1, 1, 1),
+    Title = 'tracer color',
+    Transparency = 0,
+    Callback = function(v)
+        silent_aim.tracer_color = v
+    end,
+}):AddColorPicker('silentaim_tracer_color2', {
+    Default = Color3.new(0, 0.5, 1),
+    Title = 'tracer pulse color',
+    Transparency = 0,
+    Callback = function(v)
+        silent_aim.tracer_color2 = v
+    end,
 })
 
 tracer_box:AddDropdown('silentaim_tracer_style', {
     Text = 'tracer',
-    Values = { 'Tracer 1', 'Tracer 2', 'Tracer 2 (bend)', 'Beam', 'Dark Beam Lines' },
+    Values = { 'Tracer 1', 'Tracer 2', 'Tracer 2 (bend)', 'Beam', 'Dark Beam Lines', 'part' },
     Default = 1,
     Multi = false,
+    Tooltip = 'part draws a simple cylinder instead of a beam.',
     Callback = function(v)
         silent_aim.tracer_style = v
-    end,
-})
-
-tracer_box:AddDropdown('silentaim_tracer_object', {
-    Text = 'tracer object',
-    Values = { 'beam', 'part' },
-    Default = 1,
-    Multi = false,
-    Tooltip = 'part draws a simple part with an outline instead of a beam.',
-    Callback = function(v)
-        silent_aim.tracer_object = v
     end,
 })
 
@@ -1924,7 +1998,7 @@ local function create_bent_tracer(Origin, Position, Color1, Color2, Thickness, L
     end)
 end
 
--- "part" tracer: a simple neon part with a wireframe outline.
+-- "part" tracer: a simple neon cylinder (no outline) along the shot path.
 local function create_part_tracer(Origin, Position, Color, Thickness, Lifetime)
     if typeof(Origin) ~= "Vector3" or typeof(Position) ~= "Vector3" then return end
     local dist = (Position - Origin).Magnitude
@@ -1934,7 +2008,7 @@ local function create_part_tracer(Origin, Position, Color, Thickness, Lifetime)
     local parent = workspace:FindFirstChild("NoCollision") or workspace
 
     local part = Instance.new("Part")
-    part.Name = "CenthackTracerPart"
+    part.Name = "CenthackTracerCylinder"
     part.Anchored = true
     part.CanCollide = false
     part.CanTouch = false
@@ -1943,18 +2017,12 @@ local function create_part_tracer(Origin, Position, Color, Thickness, Lifetime)
     part.Material = Enum.Material.Neon
     part.Color = Color or Color3.new(1, 1, 1)
     part.Transparency = 0.35
-    part.Size = Vector3.new(width, width, dist)
-    part.CFrame = CFrame.lookAt((Origin + Position) * 0.5, Position)
+    part.Shape = Enum.PartType.Cylinder
+    -- a Roblox cylinder runs along its local X axis, so the size is
+    -- (length, width, width) and the part is rotated to face the target
+    part.Size = Vector3.new(dist, width, width)
+    part.CFrame = CFrame.lookAt((Origin + Position) * 0.5, Position) * CFrame.Angles(0, math.rad(90), 0)
     part.Parent = parent
-
-    local outline = Instance.new("SelectionBox")
-    outline.Name = "CenthackTracerOutline"
-    outline.Adornee = part
-    outline.LineThickness = 0.01
-    outline.SurfaceColor3 = Color3.new(0, 0, 0)
-    outline.SurfaceTransparency = 1
-    outline.Transparency = 0.15
-    outline.Parent = part
 
     Debris:AddItem(part, math.max(tonumber(Lifetime) or 1, 0.1))
 end
@@ -1963,7 +2031,7 @@ end
 local function draw_tracer(Origin, Position)
     if not silent_aim.tracer then return end
 
-    if silent_aim.tracer_object == "part" then
+    if silent_aim.tracer_style == "part" then
         create_part_tracer(
             Origin, Position,
             silent_aim.tracer_color,
@@ -2882,71 +2950,177 @@ if melee_module and melee_module.StartSwing and not melee_module._reach_hooked t
 end
 
 -- 7) Auto fill mags: compatible ammo is moved into magazines that are not
---    full.
+--    full. Ported from pin.reta V2 so the magazine / ammo matching matches
+--    the game exactly (template attributes + explicit caliber map).
 do
-    local function get_item_template(item_name)
-        local items = ReplicatedStorage:FindFirstChild("ItemsList")
-        local template = items and items:FindFirstChild(item_name)
-        return template and template:FindFirstChild("ItemProperties")
+    local itemsList = ReplicatedStorage:FindFirstChild("ItemsList")
+
+    local function getItemTemplate(itemName)
+        if itemsList and itemsList:FindFirstChild(itemName) then
+            return itemsList[itemName]:FindFirstChild("ItemProperties")
+        end
+        local found = ReplicatedStorage:FindFirstChild(itemName, true)
+        if found then
+            return found:FindFirstChild("ItemProperties") or (found.Parent and found.Parent:FindFirstChild("ItemProperties"))
+        end
+        return nil
     end
+
+    -- magazines that do not expose their CompatibleAmmo list
+    local explicit_mag_ammo_map = {
+        -- 5.56x45mm
+        Mag556 = { ["556x45AP"] = true, ["556x45Tracer"] = true },
+        ["20Rnd556"] = { ["556x45AP"] = true, ["556x45Tracer"] = true },
+        PMAG10rnd = { ["556x45AP"] = true, ["556x45Tracer"] = true },
+        Mag556Rnd100 = { ["556x45AP"] = true, ["556x45Tracer"] = true },
+
+        -- 7.62x39mm
+        ["762x39MAG"] = { ["762x39AP"] = true, ["762x39Tracer"] = true },
+        ["762x39ImprMAG"] = { ["762x39AP"] = true, ["762x39Tracer"] = true },
+        ["762x39Rnd75Mag"] = { ["762x39AP"] = true, ["762x39Tracer"] = true },
+
+        -- 7.62x51mm (FAL & R700)
+        ["20rndFAL"] = { ["762x51AP"] = true, ["762x51Tracer"] = true },
+        ["30rndFAL"] = { ["762x51AP"] = true, ["762x51Tracer"] = true },
+        MagR700 = { ["762x51AP"] = true, ["762x51Tracer"] = true },
+
+        -- 7.62x54mm (SVD & PKM)
+        ["762x54Rnd10Mag"] = { ["762x54AP"] = true, ["762x54Tracer"] = true },
+        ["762x54Rnd20Mag"] = { ["762x54AP"] = true, ["762x54Tracer"] = true },
+        AmmoBoxPKM100rnd = { ["762x54AP"] = true, ["762x54Tracer"] = true },
+
+        -- 7.62x25mm (TT33 & VZ61 / PPSH)
+        ["762x25MAG"] = { ["762x25AP"] = true, ["762x25Tracer"] = true },
+        ["762x25TTMAG"] = { ["762x25AP"] = true, ["762x25Tracer"] = true },
+        ["762x25Rnd71Mag"] = { ["762x25AP"] = true, ["762x25Tracer"] = true },
+
+        -- 9x18mm (Makarov & VZ61)
+        ["9x18MakarovMAG"] = { ["9x18AP"] = true, ["9x18Tracer"] = true, ["9x18Z"] = true },
+        ["9x18MakarovDrumMag"] = { ["9x18AP"] = true, ["9x18Tracer"] = true, ["9x18Z"] = true },
+        ["9x18vzMag"] = { ["9x18AP"] = true, ["9x18Tracer"] = true, ["9x18Z"] = true },
+        ["9x18vzDrumMag"] = { ["9x18AP"] = true, ["9x18Tracer"] = true, ["9x18Z"] = true },
+
+        -- 9x19mm (MP443 & MP5)
+        ["9x19MP443MAG"] = { ["9x19AP"] = true, ["9x19Tracer"] = true },
+        ["9x19MP5MAG"] = { ["9x19AP"] = true, ["9x19Tracer"] = true },
+        ["9x19MP5DrumMAG"] = { ["9x19AP"] = true, ["9x19Tracer"] = true },
+
+        -- 9x39mm (AsVal / VSS)
+        ["9x39Mag"] = { ["9x39AP"] = true, ["9x39Z"] = true },
+        ["9x39Rnd30Mag"] = { ["9x39AP"] = true, ["9x39Z"] = true },
+
+        -- 12 Gauge (Saiga)
+        SaigaMag5rnd = { ["12gaAP"] = true, ["12gaBuckshot"] = true, ["12gaFlechette"] = true, ["12gaSlug"] = true },
+        SaigaMag20rnd = { ["12gaAP"] = true, ["12gaBuckshot"] = true, ["12gaFlechette"] = true, ["12gaSlug"] = true },
+
+        -- .338 Lapua (TFZ98S)
+        MagTFZ98 = { ["338AP"] = true, ["338T"] = true },
+
+        -- .45 ACP (MK23)
+        MK23ExtMag = { ["45AP"] = true, ["45Tracer"] = true },
+    }
 
     task.spawn(function()
         while cheat.alive do
             task.wait(0.5)
-            if gunmods.enabled and gunmods.auto_fill_mags then
+            if not (gunmods.enabled and gunmods.auto_fill_mags) then continue end
             pcall(function()
                 local rp = ReplicatedStorage:FindFirstChild("Players")
-                local player_data = rp and rp:FindFirstChild(LocalPlayer.Name)
-                local inventory_root = player_data and player_data:FindFirstChild("Inventory")
-                local move_remote = ReplicatedStorage:FindFirstChild("Remotes")
+                local local_game_data = rp and rp:FindFirstChild(LocalPlayer.Name)
+                local inventorymove_remote = ReplicatedStorage:FindFirstChild("Remotes")
                     and ReplicatedStorage.Remotes:FindFirstChild("InventoryMove")
-                if not (inventory_root and move_remote) then return end
+                if not (local_game_data and inventorymove_remote) then return end
 
-                for _, container in ipairs(inventory_root:GetChildren()) do
+                for _, container in ipairs(local_game_data.Inventory:GetChildren()) do
                     local inventory = _FindFirstChild(container, "Inventory")
-                    if inventory then
-
-                    local mags, ammo = {}, {}
+                    if not inventory then continue end
                     for _, item in ipairs(inventory:GetChildren()) do
-                        local template = get_item_template(item.Name)
-                        local slot_type = item:GetAttribute("SlotType") or (template and template:GetAttribute("SlotType"))
-                        local item_type = item:GetAttribute("ItemType") or (template and template:GetAttribute("ItemType"))
-                        local loaded = item:GetAttribute("LoadedAmmo")
-                        if slot_type == "Magazine" or item_type == "Magazine" or (loaded ~= nil and item.Name:find("Mag")) then
-                            mags[#mags + 1] = item
-                        elseif item_type == "Ammo" then
-                            ammo[#ammo + 1] = item
-                        end
-                    end
+                        local loadedAmmo = item:GetAttribute("LoadedAmmo")
+                        local propObj = item:FindFirstChild("ItemProperties")
+                        local propVal = (propObj and propObj:IsA("ObjectValue")) and propObj.Value
+                        local templateProp = getItemTemplate(item.Name) or (propVal and getItemTemplate(propVal.Name))
 
-                    for _, mag in ipairs(mags) do
-                        local loaded = mag:GetAttribute("LoadedAmmo") or 0
-                        local maximum = mag:GetAttribute("MaxLoadedAmmo")
-                            or mag:GetAttribute("Capacity")
-                            or mag:GetAttribute("MaxAmmo")
+                        local slotType = item:GetAttribute("SlotType") or (templateProp and templateProp:GetAttribute("SlotType"))
+                        local itemType = item:GetAttribute("ItemType") or (templateProp and templateProp:GetAttribute("ItemType"))
+
+                        local isMag = (loadedAmmo ~= nil)
+                            or (slotType == "Magazine")
+                            or (itemType == "Magazine")
+                            or item.Name:find("Mag")
+                            or item.Name:find("Drum")
+                            or item.Name:find("AmmoBox")
+                        if not isMag then continue end
+
+                        loadedAmmo = loadedAmmo or 0
+                        local maxAmmo = item:GetAttribute("MaxLoadedAmmo")
+                            or (templateProp and templateProp:GetAttribute("MaxLoadedAmmo"))
+                            or item:GetAttribute("MaxAmmo")
+                            or item:GetAttribute("Capacity")
                             or 30
-                        if loaded < maximum then
-                            local template = get_item_template(mag.Name)
-                            local compatible = template and template:FindFirstChild("CompatibleAmmo")
-                            if compatible then
-                                for _, round in ipairs(ammo) do
-                                    local amount = round:GetAttribute("Amount") or 0
-                                    if amount > 0 and compatible:GetAttribute(round.Name) then
-                                        local ammo_slot = round:GetAttribute("Slot")
-                                        local mag_slot = mag:GetAttribute("Slot")
-                                        if ammo_slot and mag_slot and round.Parent and mag.Parent then
-                                            move_remote:FireServer(ammo_slot, mag_slot, round.Parent, mag.Parent, nil)
-                                        end
-                                        break
+                        if loadedAmmo >= maxAmmo then continue end
+
+                        -- exact compatible ammo types for this magazine
+                        local compatibleAmmo = (templateProp and templateProp:FindFirstChild("CompatibleAmmo"))
+                            or (propVal and propVal:FindFirstChild("CompatibleAmmo"))
+                        local magCaliber = (templateProp and templateProp:GetAttribute("AmmoType"))
+                            or (propVal and propVal:GetAttribute("AmmoType"))
+                            or item:GetAttribute("AmmoType")
+                        local explicitMap = explicit_mag_ammo_map[item.Name]
+                        local foundAmmo = nil
+
+                        for _, c2 in ipairs(local_game_data.Inventory:GetChildren()) do
+                            local inv2 = _FindFirstChild(c2, "Inventory")
+                            if not inv2 then continue end
+                            for _, ammoItem in ipairs(inv2:GetChildren()) do
+                                local ammoAmount = ammoItem:GetAttribute("Amount")
+                                if not (ammoAmount and ammoAmount > 0) then continue end
+                                local ammoTemplate = getItemTemplate(ammoItem.Name)
+                                local ammoSlotType = ammoItem:GetAttribute("SlotType") or (ammoTemplate and ammoTemplate:GetAttribute("SlotType"))
+                                local ammoItemType = ammoItem:GetAttribute("ItemType") or (ammoTemplate and ammoTemplate:GetAttribute("ItemType"))
+
+                                -- filter out medical / consumable items explicitly
+                                local consumable = ammoSlotType == "Consumable" or ammoItemType == "Consumable"
+                                local medical = ammoItem.Name:find("AI%d") or ammoItem.Name:find("AA%d")
+                                    or ammoItem.Name:find("Serum") or ammoItem.Name:find("Bandage")
+                                if consumable or medical then continue end
+
+                                local isCompat = false
+                                if explicitMap and explicitMap[ammoItem.Name] then
+                                    isCompat = true
+                                elseif compatibleAmmo then
+                                    isCompat = (compatibleAmmo:GetAttribute(ammoItem.Name) ~= nil)
+                                end
+                                if not isCompat and magCaliber and magCaliber ~= "" then
+                                    isCompat = (ammoSlotType == magCaliber) or ammoItem.Name:find(magCaliber)
+                                end
+                                if not isCompat then
+                                    local cleanMag = item.Name:gsub("Mag.*", ""):gsub("Drum.*", ""):gsub("AmmoBox.*", "")
+                                        :gsub("20Rnd", ""):gsub("30Rnd", ""):gsub("100Rnd", "")
+                                    if cleanMag ~= "" and cleanMag ~= item.Name then
+                                        isCompat = ammoItem.Name:find(cleanMag)
                                     end
                                 end
+
+                                if isCompat then
+                                    foundAmmo = ammoItem
+                                    break
+                                end
+                            end
+                            if foundAmmo then break end
+                        end
+
+                        if foundAmmo then
+                            local ammoSlot = foundAmmo:GetAttribute("Slot")
+                            local magSlot = item:GetAttribute("Slot")
+                            local ammoParent = foundAmmo.Parent
+                            local magParent = item.Parent
+                            if ammoSlot and magSlot and ammoParent and magParent then
+                                inventorymove_remote:FireServer(ammoSlot, magSlot, ammoParent, magParent, nil)
                             end
                         end
                     end
-                    end
                 end
             end)
-            end
         end
     end)
 end
@@ -3637,6 +3811,24 @@ cheat.utility.new_renderstepped(LPH_NO_VIRTUALIZE(function()
         StatusText.Visible = false
     end
 end))
+
+----------------------------------------------------------------------
+-- THEME / CONFIG ADDONS
+----------------------------------------------------------------------
+-- Both addons read the option tables from the global environment, which the
+-- library keeps in sync through getgenv(), so no extra plumbing is needed.
+if ThemeManager then
+    pcall(function() ThemeManager:SetLibrary(Library) end)
+    pcall(function() ThemeManager:SetFolder('centhackV2') end)
+    pcall(function() ThemeManager:ApplyToGroupbox(theme_box) end)
+end
+
+if SaveManager then
+    pcall(function() SaveManager:SetLibrary(Library) end)
+    pcall(function() SaveManager:SetFolder('centhackV2') end)
+    pcall(function() SaveManager:BuildConfigSection(ui.tabs.config) end)
+    pcall(function() SaveManager:LoadAutoloadConfig() end)
+end
 
 ----------------------------------------------------------------------
 -- TOGGLE COLOURS
