@@ -37,9 +37,9 @@ local Toggles = getgenv().Toggles
 Library.AccentColor1 = Color3.fromRGB(255, 255, 255)
 Library.AccentColor2 = Color3.fromRGB(255, 90, 160)
 Library.UseGradient = true
-Library.FontName = 'Code'
-Library.FontSize = 14
-Library.Font = Enum.Font.Code
+Library.FontName = 'Arcade'
+Library.FontSize = 15
+Library.Font = Enum.Font.Arcade
 
 ----------------------------------------------------------------------
 -- WINDOW

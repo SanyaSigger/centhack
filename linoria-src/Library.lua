@@ -41,9 +41,9 @@ local Library = {
 
     Black = Color3.new(0, 0, 0);
     Font = Enum.Font.Code;
-    FontName = 'Code';
-    FontSize = 14;
-    BaseFontSize = 14;
+    FontName = 'Arcade';
+    FontSize = 15;
+    BaseFontSize = 15;
 
 
 
