@@ -597,6 +597,11 @@ function Library:OnUnload(Callback)
     Library.OnUnload = Callback
 end
 
+
+function Library:GiveSignal(Signal)
+	table.insert(Library.Signals, Signal)
+end
+
 Library:GiveSignal(ScreenGui.DescendantRemoving:Connect(function(Instance)
     if Library.RegistryMap[Instance] then
         Library:RemoveFromRegistry(Instance);
