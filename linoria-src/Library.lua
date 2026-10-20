@@ -3144,8 +3144,9 @@ function Library:CreateViewport(Options)
     Viewport.CurrentCamera = Cam;
 
     -- the world model has to be bound to the viewport, otherwise nothing is
-    -- rendered inside the menu
-    Viewport.World = World;
+    -- rendered inside the menu. ViewportFrame has no "World" property
+    -- anymore, the world model is parented to the viewport instead.
+    World.Parent = Viewport;
     Viewport.Ambient = Color3.fromRGB(180, 180, 180);
     Viewport.LightColor = Color3.fromRGB(255, 255, 255);
     Viewport.LightDirection = Vector3.new(-1, -1, -1);
