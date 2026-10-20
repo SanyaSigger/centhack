@@ -149,6 +149,15 @@ local ThemeManager = {} do
 	end
 
 	function ThemeManager:CreateThemeManager(groupbox)
+		local function UpdateTheme()
+			self:ThemeUpdate()
+		end
+
+		local function BindChanged(obj, callback)
+			if obj and obj.OnChanged then
+				obj:OnChanged(callback)
+			end
+
 		groupbox:AddColorPicker('BackgroundColor', {
 			Title = 'Background color';
 			Text = 'Background color';
@@ -295,14 +304,7 @@ local ThemeManager = {} do
 
 		ThemeManager:LoadDefault()
 
-		local function UpdateTheme()
-			self:ThemeUpdate()
-		end
 
-		local function BindChanged(obj, callback)
-			if obj and obj.OnChanged then
-				obj:OnChanged(callback)
-			end
 		end
 
 		BindChanged(Options.BackgroundColor, UpdateTheme)

@@ -3125,6 +3125,7 @@ function Library:CreateWindow(...)
         AnchorPoint = Config.AnchorPoint;
         BackgroundColor3 = Color3.new(0, 0, 0);
         BorderColor3 = Library.OutlineColor;
+        BorderSizePixel = 1;
         Position = Config.Position;
         Size = Config.Size;
         Visible = false;
@@ -3138,8 +3139,7 @@ function Library:CreateWindow(...)
 
     local Main = Library:Create('Frame', {
         BackgroundColor3 = Library.BackgroundColor;
-        BorderColor3 = Library.OutlineColor;
-        BorderMode = Enum.BorderMode.Inset;
+        BorderSizePixel = 0;
         Position = UDim2.new(0, 1, 0, 1);
         Size = UDim2.new(1, -2, 1, -2);
         ZIndex = 2;
@@ -3156,8 +3156,8 @@ function Library:CreateWindow(...)
     local AccentLine = Library:Create('Frame', {
         BackgroundColor3 = Library.AccentColor1;
         BorderSizePixel = 0;
-        Position = UDim2.new(0, 4, 0, 0);
-        Size = UDim2.new(1, -8, 0, 2);
+        Position = UDim2.new(0, 0, 0, 0);
+        Size = UDim2.new(1, 0, 0, 2);
         ZIndex = 3;
         Parent = Main;
     });
@@ -3168,11 +3168,11 @@ function Library:CreateWindow(...)
     });
 
     local WindowLabel = Library:CreateLabel({
-        Position = UDim2.new(0, 0, 0, 6);
-        Size = UDim2.new(1, 0, 0, 24);
+        Position = UDim2.new(0, 0, 0, 4);
+        Size = UDim2.new(1, 0, 0, 20);
         Text = Config.Title or '';
         TextXAlignment = Enum.TextXAlignment.Center;
-        TextSize = 14;
+        TextSize = 12;
         ZIndex = 3;
         Parent = Main;
     });
@@ -3183,7 +3183,7 @@ function Library:CreateWindow(...)
 
     local TabArea = Library:Create('Frame', {
         BackgroundTransparency = 1;
-        Position = UDim2.new(0, 8, 0, 34);
+        Position = UDim2.new(0, 8, 0, 28);
         Size = UDim2.new(1, -16, 0, 22);
         ZIndex = 3;
         Parent = Main;
@@ -3199,8 +3199,8 @@ function Library:CreateWindow(...)
     local TabContainer = Library:Create('Frame', {
         BackgroundColor3 = Library.MainColor;
         BorderColor3 = Library.OutlineColor;
-        Position = UDim2.new(0, 8, 0, 60);
-        Size = UDim2.new(1, -16, 1, -68);
+        Position = UDim2.new(0, 8, 0, 54);
+        Size = UDim2.new(1, -16, 1, -60);
         ZIndex = 3;
         Parent = Main;
     });
