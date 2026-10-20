@@ -271,8 +271,8 @@ Left:AddDropdown('Example_TargetPlayer', {
 })
 
 -- --- Color picker ----
-Left:AddLabel('Crosshair color'):AddColorPicker('Example_Crosshair', {
-    Default = Color3.fromRGB(255, 80, 80),
+Left:AddLabel('Crosshair color')
+Left:AddColorPicker('Example_Crosshair', {
     Transparency = true,
     Callback = function(Color)
         print('[Crosshair]', Color)
@@ -376,8 +376,8 @@ MenuKeyLabel:AddKeyPicker('Example_MenuKey', {
 })
 
 KeyGroup:AddLabel('Always-mode key (fires continuously while held)')
-KeyGroup:AddLabel('Press F1 to activate'):AddKeyPicker('Example_AlwaysKey', {
-    Text = 'Always key',
+KeyGroup:AddLabel('Press F1 to activate')
+KeyGroup:AddKeyPicker('Example_AlwaysKey', {
     Default = 'F1',
     Mode = 'Always',
     Callback = function(Value)
@@ -386,8 +386,8 @@ KeyGroup:AddLabel('Press F1 to activate'):AddKeyPicker('Example_AlwaysKey', {
 })
 
 KeyGroup:AddLabel('Toggle-mode key (press once to toggle on/off)')
-KeyGroup:AddLabel('Press F2 to toggle'):AddKeyPicker('Example_ToggleKey', {
-    Text = 'Toggle key',
+KeyGroup:AddLabel('Press F2 to toggle')
+KeyGroup:AddKeyPicker('Example_ToggleKey', {
     Default = 'F2',
     Mode = 'Toggle',
     Callback = function(Value)
@@ -396,8 +396,8 @@ KeyGroup:AddLabel('Press F2 to toggle'):AddKeyPicker('Example_ToggleKey', {
 })
 
 KeyGroup:AddLabel('Hold-mode key (fires while held down)')
-KeyGroup:AddLabel('Hold F3 to activate'):AddKeyPicker('Example_HoldKey', {
-    Text = 'Hold key',
+KeyGroup:AddLabel('Hold F3 to activate')
+KeyGroup:AddKeyPicker('Example_HoldKey', {
     Default = 'F3',
     Mode = 'Hold',
     Callback = function(Value)
@@ -406,8 +406,8 @@ KeyGroup:AddLabel('Hold F3 to activate'):AddKeyPicker('Example_HoldKey', {
 })
 
 KeyGroup:AddLabel('Custom modes key (only Toggle and Hold available)')
-KeyGroup:AddLabel('Press F4'):AddKeyPicker('Example_CustomKey', {
-    Text = 'Custom modes',
+KeyGroup:AddLabel('Press F4')
+KeyGroup:AddKeyPicker('Example_CustomKey', {
     Default = 'F4',
     Modes = {'Toggle', 'Hold'},
 })
@@ -512,8 +512,8 @@ local TabStyle = Window:AddTab('Style')
 
 local StyleGroup = TabStyle:AddLeftGroupbox('Accent gradient')
 
-StyleGroup:AddLabel('Accent 1 (gradient start)'):AddColorPicker('Style_Accent1', {
-    Default = Library.AccentColor1,
+StyleGroup:AddLabel('Accent 1 (gradient start)')
+StyleGroup:AddColorPicker('Style_Accent1', {
     Callback = function(Color)
         Library.AccentColor1 = Color
         Library:UpdateGradients()
@@ -521,8 +521,8 @@ StyleGroup:AddLabel('Accent 1 (gradient start)'):AddColorPicker('Style_Accent1',
     end,
 })
 
-StyleGroup:AddLabel('Accent 2 (gradient end)'):AddColorPicker('Style_Accent2', {
-    Default = Library.AccentColor2,
+StyleGroup:AddLabel('Accent 2 (gradient end)')
+StyleGroup:AddColorPicker('Style_Accent2', {
     Callback = function(Color)
         Library.AccentColor2 = Color
         Library:UpdateGradients()
@@ -562,8 +562,8 @@ end)
 
 local FontGroup = TabStyle:AddRightGroupbox('Typography & Background')
 
-FontGroup:AddLabel('Font family'):AddDropdown('Style_FontName', {
-    Text = 'Font',
+FontGroup:AddLabel('Font family')
+FontGroup:AddDropdown('Style_FontName', {
     Values = ThemeManager.FontNames,
     Default = Library.FontName,
     Callback = function(Value)
@@ -590,8 +590,8 @@ FontGroup:AddSlider('Style_FontSize', {
 
 FontGroup:AddDivider()
 
-FontGroup:AddLabel('Background image ID'):AddInput('Style_BackgroundImage', {
-    Text = 'Image ID',
+FontGroup:AddLabel('Background image ID')
+FontGroup:AddInput('Style_BackgroundImage', {
     Placeholder = 'rbxassetid://123456789',
     Default = Library.BackgroundImage,
     Callback = function(Value)
