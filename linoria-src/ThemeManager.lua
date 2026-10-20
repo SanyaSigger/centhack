@@ -311,9 +311,9 @@ local ThemeManager = {} do
 			Callback = function(Value)
 				ThemeManager.Moving = Value;
 				if Value then
-					ThemeManager.StartMove();
+					ThemeManager:StartMove();
 				else
-					ThemeManager.StopMove();
+					ThemeManager:StopMove();
 				end;
 			end;
 		});
