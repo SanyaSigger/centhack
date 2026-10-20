@@ -45,7 +45,7 @@
 
   Addons (on Toggle or non-wrap Label only — NOT on Groupbox):
     Toggle:AddColorPicker(Idx, {Default, Transparency, Title, Callback})
-    Toggle:AddKeyPicker(Idx, {Text, Default, Mode ('Always'/'Toggle'/'Hold'), Callback})
+    Toggle:AddKeyPicker(Idx, {Text, Default, Callback})
     Label:AddColorPicker(...)   Label:AddKeyPicker(...)
 
   Library globals:
@@ -194,12 +194,8 @@ local AimbotToggle = Left:AddToggle('Example_Aimbot', {
 AimbotToggle:AddKeyPicker('Example_AimbotKey', {
     Text = 'Aimbot key',
     Default = 'E',
-    Mode = 'Toggle',
     Callback = function(Value)
         print('[Aimbot key] ->', Value)
-    end,
-    ChangedCallback = function(New)
-        print('[Aimbot key changed] ->', New)
     end,
 })
 
@@ -211,9 +207,18 @@ local SilentToggle = Left:AddToggle('Example_Silent', {
 SilentToggle:AddKeyPicker('Example_SilentKey', {
     Text = 'Silent aim key',
     Default = 'Q',
-    Mode = 'Hold',
-    SyncToggleState = false,
 })
+
+
+-- --- Text Color Example ---
+-- Change the text color of a checkbox/toggle using SetTextColor
+local TextColorToggle = Left:AddToggle("Example_TextColorToggle", {
+    Text = "Custom text color toggle",
+    Default = false,
+})
+
+-- Set the toggle label text color to red
+TextColorToggle:SetTextColor(Color3.fromRGB(255, 80, 80))
 
 -- --- Slider ----
 local FovSlider = Left:AddSlider('Example_FOV', {
@@ -368,18 +373,16 @@ local MenuKeyLabel = KeyGroup:AddLabel('Menu toggle key')
 MenuKeyLabel:AddKeyPicker('Example_MenuKey', {
     Text = 'Menu toggle',
     Default = 'End',
-    Mode = 'Toggle',
     Callback = function(Value)
         Library.ToggleKeybind = {Type = 'KeyPicker', Value = Value}
         print('[Menu key] ->', Value)
     end,
 })
 
-KeyGroup:AddLabel('Always-mode key (fires continuously while held)')
-KeyGroup:AddLabel('Press F1 to activate')
+KeyGroup:AddLabel('Hold key (fires while held down)')
+KeyGroup:AddLabel('Hold F1 to activate')
 KeyGroup:AddKeyPicker('Example_AlwaysKey', {
     Default = 'F1',
-    Mode = 'Always',
     Callback = function(Value)
         print('[Always key]', Value)
     end,
@@ -389,7 +392,6 @@ KeyGroup:AddLabel('Toggle-mode key (press once to toggle on/off)')
 KeyGroup:AddLabel('Press F2 to toggle')
 KeyGroup:AddKeyPicker('Example_ToggleKey', {
     Default = 'F2',
-    Mode = 'Toggle',
     Callback = function(Value)
         print('[Toggle key]', Value)
     end,
@@ -399,7 +401,6 @@ KeyGroup:AddLabel('Hold-mode key (fires while held down)')
 KeyGroup:AddLabel('Hold F3 to activate')
 KeyGroup:AddKeyPicker('Example_HoldKey', {
     Default = 'F3',
-    Mode = 'Hold',
     Callback = function(Value)
         print('[Hold key]', Value)
     end,
@@ -409,7 +410,6 @@ KeyGroup:AddLabel('Custom modes key (only Toggle and Hold available)')
 KeyGroup:AddLabel('Press F4')
 KeyGroup:AddKeyPicker('Example_CustomKey', {
     Default = 'F4',
-    Modes = {'Toggle', 'Hold'},
 })
 
 local NotifyGroup = TabKeys:AddRightGroupbox('Notifications')
@@ -444,7 +444,7 @@ SaveManager:BuildConfigSection(TabConfig)
 
 local ConfigGroup = TabConfig:AddLeftGroupbox('Config internals')
 
-ConfigGroup:AddLabel('Saved configs are plain-text `.cfg` files using the `LinoriaCfg|1` format.')
+ConfigGroup:AddLabel('Saved configs are plain-text `.json` files using JSON format.')
 
 ConfigGroup:AddButton('Show exported config', function()
     local text = SaveManager:ExportConfig()
@@ -495,7 +495,7 @@ ConfigGroup:AddInput('Example_ConfigName', {
 ConfigGroup:AddButton('Delete config file', function()
     local name = Options.Example_ConfigName.Value
     local ok = pcall(function()
-        delfile(STORAGE_FOLDER .. '/settings/' .. name .. '.cfg')
+        delfile(STORAGE_FOLDER .. '/settings/' .. name .. '.json')
     end)
     Library:Notify(ok and ('Deleted "' .. name .. '"') or 'Delete failed', ok and 2 or 3)
 end)
