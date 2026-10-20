@@ -2109,7 +2109,6 @@ do
             Min = Info.Min;
             Max = Info.Max;
             Rounding = Info.Rounding;
-            MaxSize = 232;
             Type = 'Slider';
             Callback = Info.Callback or function(Value) end;
         };
@@ -2223,10 +2222,10 @@ do
                 DisplayLabel.Text = string.format('%s/%s', Slider.Value .. Suffix, Slider.Max .. Suffix);
             end
 
-            local X = math.ceil(Library:MapValue(Slider.Value, Slider.Min, Slider.Max, 0, Slider.MaxSize));
+            local X = math.ceil(Library:MapValue(Slider.Value, Slider.Min, Slider.Max, 0, SliderOuter.AbsoluteSize.X));
             Fill.Size = UDim2.new(0, X, 1, 0);
 
-            HideBorderRight.Visible = not (X == Slider.MaxSize or X == 0);
+            HideBorderRight.Visible = not (X == SliderOuter.AbsoluteSize.X or X == 0);
         end;
 
         function Slider:OnChanged(Func)
@@ -2244,7 +2243,7 @@ do
         end;
 
         function Slider:GetValueFromXOffset(X)
-            return Round(Library:MapValue(X, 0, Slider.MaxSize, Slider.Min, Slider.Max));
+            return Round(Library:MapValue(X, 0, SliderOuter.AbsoluteSize.X, Slider.Min, Slider.Max));
         end;
 
         function Slider:SetValue(Str)
@@ -2271,7 +2270,7 @@ do
 
                 while InputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
                     local nMPos = Mouse.X;
-                    local nX = math.clamp(gPos + (nMPos - mPos) + Diff, 0, Slider.MaxSize);
+                    local nX = math.clamp(gPos + (nMPos - mPos) + Diff, 0, SliderOuter.AbsoluteSize.X);
 
                     local nValue = Slider:GetValueFromXOffset(nX);
                     local OldValue = Slider.Value;
