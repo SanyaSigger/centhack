@@ -197,7 +197,11 @@ function SaveManager:RefreshConfigList()
 			end
 
 			if char == '/' or char == '\\' then
-				table.insert(out, file:sub(pos + 1));
+				local name = file:sub(pos + 1);
+				if name:sub(-5) == '.json' then
+					name = name:sub(1, -6);
+				end
+				table.insert(out, name);
 			end
 		end
 	end
