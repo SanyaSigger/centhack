@@ -73,11 +73,10 @@ local ThemeManager = {} do
 	function ThemeManager:ApplyTheme(theme)
 		local customThemeData = self:GetCustomTheme(theme)
 		local data = customThemeData or self.BuiltInThemes[theme]
-
+	
 		if not data then return end
-
+	
 		-- custom themes are just regular dictionaries instead of an array with { index, dictionary }
-
 		local scheme = data[2]
 		local colorFields = {
 			FontColor = true;
@@ -87,7 +86,7 @@ local ThemeManager = {} do
 			BackgroundColor = true;
 			OutlineColor = true;
 		}
-
+	
 		for idx, col in next, customThemeData or scheme do
 			if colorFields[idx] then
 				local color = self.Library:ColorFromHex(col)
@@ -100,6 +99,10 @@ local ThemeManager = {} do
 				if Toggles.ThemeManager_UseGradient then
 					Toggles.ThemeManager_UseGradient:SetValue(col == true or col == 'true')
 				end
+			elseif idx == 'GradientDirection' then
+				if Options.ThemeManager_GradientDirection then
+					Options.ThemeManager_GradientDirection:SetValue(col)
+				end
 			elseif idx == 'FontName' then
 				if Options.ThemeManager_FontName then
 					Options.ThemeManager_FontName:SetValue(col)
@@ -108,62 +111,10 @@ local ThemeManager = {} do
 				if Options.ThemeManager_FontSize then
 					Options.ThemeManager_FontSize:SetValue(tonumber(col) or 14)
 				end
-			elseif idx == 'BackgroundImage' then
-				if Options.ThemeManager_BackgroundImage then
-					Options.ThemeManager_BackgroundImage:SetValue(tostring(col))
-				end
-			elseif idx == 'BackgroundImageTransparency' then
-				if Options.ThemeManager_BackgroundImageTransparency then
-					Options.ThemeManager_BackgroundImageTransparency:SetValue((tonumber(col) or 0) * 100)
-				end
-			elseif idx == 'BackgroundBlur' then
-				if Options.ThemeManager_BackgroundBlur then
-					Options.ThemeManager_BackgroundBlur:SetValue((tonumber(col) or 0) / 24 * 100)
-				end
 			end
 		end
-
+	
 		self:ThemeUpdate()
-	end
-
-	function ThemeManager:ThemeUpdate()
-		-- This allows us to force apply themes without loading the themes tab :)
-		local fieldMap = {
-			FontColor = 'FontColor';
-			MainColor = 'MainColor';
-			AccentColor1 = 'AccentColor1';
-			AccentColor2 = 'AccentColor2';
-			ThemeManager_UseGradient = 'UseGradient';
-			BackgroundColor = 'BackgroundColor';
-			OutlineColor = 'OutlineColor';
-			ThemeManager_FontName = 'FontName';
-			ThemeManager_FontSize = 'FontSize';
-			ThemeManager_BackgroundImage = 'BackgroundImage';
-			ThemeManager_BackgroundImageTransparency = 'BackgroundImageTransparency';
-			ThemeManager_BackgroundBlur = 'BackgroundBlur';
-		}
-		for optionName, libField in next, fieldMap do
-			-- Toggles live in Toggles{}, everything else in Options{}
-			local obj = (Options and Options[optionName]) or (Toggles and Toggles[optionName])
-			if obj then
-				local val = obj.Value
-				-- Sliders use 0-100, the library stores 0-1 for transparency / 0-24 for blur
-				if libField == 'BackgroundImageTransparency' then
-					val = (tonumber(val) or 0) / 100
-				elseif libField == 'BackgroundBlur' then
-					val = (tonumber(val) or 0) / 100 * 24
-				end
-				-- Convert font name string to Enum.Font (safely — invalid names fall back to Code)
-				if libField == 'FontName' then
-					self.Library.Font = ResolveFont(val)
-					self.Library.FontName = (type(val) == 'string' and val ~= '') and val or (self.Library.FontName or 'Code')
-				end
-				self.Library[libField] = val;
-			end
-		end
-
-		self.Library.AccentColorDark = self.Library:GetDarkerColor(self.Library.AccentColor1);
-		self.Library:UpdateColorsUsingRegistry()
 	end
 
 	function ThemeManager:LoadDefault()		
@@ -202,6 +153,12 @@ local ThemeManager = {} do
 			Text = 'Use accent gradient';
 			Default = not self.Library:ColorsEqual(self.Library.AccentColor1, self.Library.AccentColor2);
 		});
+		groupbox:AddLabel('Gradient direction')
+		groupbox:AddDropdown('ThemeManager_GradientDirection', {
+			Text = 'Direction';
+			Values = {'Horizontal', 'Vertical' };
+			Default = self.Library.GradientDirection;
+		});
 		groupbox:AddLabel('Outline color'):AddColorPicker('OutlineColor', { Default = self.Library.OutlineColor });
 		groupbox:AddLabel('Font color')	:AddColorPicker('FontColor', { Default = self.Library.FontColor });
 
@@ -226,27 +183,6 @@ local ThemeManager = {} do
 
 		groupbox:AddDivider()
 
-		groupbox:AddLabel('Background image')
-		groupbox:AddInput('ThemeManager_BackgroundImage', {
-			Text = 'Image ID (rbxassetid://...)';
-			Default = self.Library.BackgroundImage;
-		});
-
-		groupbox:AddSlider('ThemeManager_BackgroundImageTransparency', {
-			Text = 'Image transparency';
-			Default = self.Library.BackgroundImageTransparency * 100;
-			Min = 0;
-			Max = 100;
-			Rounding = 0;
-		});
-
-		groupbox:AddSlider('ThemeManager_BackgroundBlur', {
-			Text = 'Blur (%)';
-			Default = (self.Library.BackgroundBlur or 0) / 24 * 100;
-			Min = 0;
-			Max = 100;
-			Rounding = 0;
-		});
 		local ThemesArray = {}
 		for Name, Theme in next, self.BuiltInThemes do
 			table.insert(ThemesArray, Name)
@@ -315,11 +251,9 @@ local ThemeManager = {} do
 		BindChanged(Options.FontColor, UpdateTheme)
 		BindChanged(Options.ThemeManager_FontName, UpdateTheme)
 		BindChanged(Options.ThemeManager_FontSize, UpdateTheme)
-		BindChanged(Options.ThemeManager_BackgroundImage, UpdateTheme)
-		BindChanged(Options.ThemeManager_BackgroundImageTransparency, UpdateTheme)
-		BindChanged(Options.ThemeManager_BackgroundBlur, UpdateTheme)
-	end
+		BindChanged(Toggles.ThemeManager_GradientDirection, UpdateTheme)
 
+	end
 	function ThemeManager:GetCustomTheme(file)
 		local path = self.Folder .. '/themes/' .. file
 		if not isfile(path) then
@@ -352,6 +286,12 @@ local ThemeManager = {} do
 
 		if Toggles.ThemeManager_UseGradient then
 			theme.UseGradient = Toggles.ThemeManager_UseGradient.Value and true or false
+
+		end
+
+		-- Gradient direction
+		if Options.ThemeManager_GradientDirection then
+			theme.GradientDirection = Options.ThemeManager_GradientDirection.Value
 		end
 
 		-- Font settings (stored as string names)
@@ -360,19 +300,6 @@ local ThemeManager = {} do
 		end
 		if Options.ThemeManager_FontSize then
 			theme.FontSize = Options.ThemeManager_FontSize.Value
-		end
-
-		-- Background image settings
-		if Options.ThemeManager_BackgroundImage then
-			theme.BackgroundImage = Options.ThemeManager_BackgroundImage.Value
-		end
-		-- Stored in the library scale (0-1 transparency, 0-24 blur) so themes
-		-- round-trip through ApplyTheme without any extra conversion.
-		if Options.ThemeManager_BackgroundImageTransparency then
-			theme.BackgroundImageTransparency = (tonumber(Options.ThemeManager_BackgroundImageTransparency.Value) or 0) / 100
-		end
-		if Options.ThemeManager_BackgroundBlur then
-			theme.BackgroundBlur = (tonumber(Options.ThemeManager_BackgroundBlur.Value) or 0) / 100 * 24
 		end
 
 		writefile(self.Folder .. '/themes/' .. file .. '.json', httpService:JSONEncode(theme))

@@ -35,6 +35,7 @@ local Library = {
     AccentColor1 = Color3.fromRGB(0, 85, 255);
     AccentColor2 = Color3.fromRGB(0, 85, 255);
     UseGradient = false;
+    GradientDirection = 'Horizontal';
     OutlineColor = Color3.fromRGB(50, 50, 50);
     RiskColor = Color3.fromRGB(255, 50, 50),
 
@@ -44,13 +45,7 @@ local Library = {
     FontSize = 14;
     BaseFontSize = 14;
 
-    BackgroundImage = '';
-    BackgroundImageTransparency = 0;
-    BackgroundBlur = 0;
 
-    BackgroundGui = nil;
-    BackgroundImageInstance = nil;
-    BackgroundBlurEffect = nil;
 
     OpenedFrames = {};
     DependencyBoxes = {};
@@ -419,7 +414,7 @@ function Library:ApplyAccentGradient(instance)
 
     if not existingGrad then
         existingGrad = Library:Create('UIGradient', {
-            Rotation = 0;
+            Rotation = Library.GradientDirection == 'Vertical' and 90 or 0;
             Parent = instance;
         });
 
@@ -516,7 +511,6 @@ function Library:UpdateColorsUsingRegistry()
 
     Library:UpdateGradients();
     Library:UpdateFonts();
-    Library:UpdateBackground();
 end;
 
 -- Keeps every UIGradient in sync with the current accent colors.
@@ -583,68 +577,6 @@ function Library:UpdateFonts()
 end;
 
 -- Creates / updates the shared background image and its blur effect.
-function Library:UpdateBackground()
-    local Image = Library.BackgroundImage;
-
-    if (not Image) or Image == '' then
-        if Library.BackgroundImageInstance then
-            Library.BackgroundImageInstance:Destroy();
-            Library.BackgroundImageInstance = nil;
-        end;
-
-        if Library.BackgroundBlurEffect then
-            Library.BackgroundBlurEffect:Destroy();
-            Library.BackgroundBlurEffect = nil;
-        end;
-
-        return;
-    end;
-
-    if not Library.BackgroundGui then
-        Library.BackgroundGui = Instance.new('ScreenGui');
-        ProtectGui(Library.BackgroundGui);
-
-        Library.BackgroundGui.Name = 'LinoriaBackground';
-        Library.BackgroundGui.DisplayOrder = -1;
-        Library.BackgroundGui.IgnoreGuiInset = true;
-        Library.BackgroundGui.ResetOnSpawn = false;
-        Library.BackgroundGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
-        Library.BackgroundGui.Parent = CoreGui;
-    end;
-
-    if not Library.BackgroundImageInstance then
-        Library.BackgroundImageInstance = Instance.new('ImageLabel');
-        Library.BackgroundImageInstance.Name = 'LinoriaBackgroundImage';
-        Library.BackgroundImageInstance.BackgroundTransparency = 1;
-        Library.BackgroundImageInstance.Size = UDim2.new(1, 0, 1, 0);
-        Library.BackgroundImageInstance.ScaleType = Enum.ScaleType.Stretch;
-        Library.BackgroundImageInstance.ZIndex = 0;
-        Library.BackgroundImageInstance.Parent = Library.BackgroundGui;
-    end;
-
-    Library.BackgroundImageInstance.Image = Image;
-    Library.BackgroundImageInstance.ImageTransparency = Library.BackgroundImageTransparency or 0;
-
-    local Blur = Library.BackgroundBlur or 0;
-
-    if Blur > 0 then
-        if not Library.BackgroundBlurEffect then
-            Library.BackgroundBlurEffect = Instance.new('BlurEffect');
-            Library.BackgroundBlurEffect.Name = 'LinoriaBackgroundBlur';
-            Library.BackgroundBlurEffect.Parent = Library.BackgroundGui;
-        end;
-
-        Library.BackgroundBlurEffect.Size = Blur;
-    elseif Library.BackgroundBlurEffect then
-        Library.BackgroundBlurEffect:Destroy();
-        Library.BackgroundBlurEffect = nil;
-    end;
-end;
-
-function Library:GiveSignal(Signal)
-    -- Only used for signals not attached to library instances, as those should be cleaned up on object destruction by Roblox
-    table.insert(Library.Signals, Signal)
-end
 
 function Library:Unload()
     -- Unload all of the signals
@@ -3073,13 +3005,12 @@ function Library:CreateWindow(...)
     local Window = {
         Tabs = {};
     };
-
     local Outer = Library:Create('Frame', {
-        AnchorPoint = Config.AnchorPoint,
-        BackgroundColor3 = Color3.new(0, 0, 0);
-        BorderSizePixel = 0;
-        Position = Config.Position,
-        Size = Config.Size,
+        AnchorPoint = Config.AnchorPoint;
+        BackgroundColor3 = Library.BackgroundColor;
+        BorderColor3 = Library.OutlineColor;
+        Position = Config.Position;
+        Size = Config.Size;
         Visible = false;
         ZIndex = 1;
         Parent = ScreenGui;
@@ -3087,67 +3018,26 @@ function Library:CreateWindow(...)
 
     Library:MakeDraggable(Outer, 25);
 
-    -- Background image behind the window (shared, managed by Library:UpdateBackground)
-    Library:UpdateBackground();
-
-    local Inner = Library:Create('Frame', {
-        BackgroundColor3 = Library.MainColor;
-        BorderColor3 = Library.AccentColor1;
-        BorderMode = Enum.BorderMode.Inset;
-        Position = UDim2.new(0, 1, 0, 1);
-        Size = UDim2.new(1, -2, 1, -2);
-        ZIndex = 1;
+    local WindowLabel = Library:CreateLabel({
+        Position = UDim2.new(0, 0, 0, 4);
+        Size = UDim2.new(1, 0, 0, 24);
+        Text = Config.Title or '';
+        TextXAlignment = Enum.TextXAlignment.Center;
+        TextSize = 14;
+        ZIndex = 2;
         Parent = Outer;
     });
 
-    Library:AddToRegistry(Inner, {
-        BackgroundColor3 = 'MainColor';
-        BorderColor3 = 'AccentColor1';
-    });
-
-    local WindowLabel = Library:CreateLabel({
-        Position = UDim2.new(0, 7, 0, 0);
-        Size = UDim2.new(0, 0, 0, 25);
-        Text = Config.Title or '';
-        TextXAlignment = Enum.TextXAlignment.Left;
-        ZIndex = 1;
-        Parent = Inner;
-    });
-
-    local MainSectionOuter = Library:Create('Frame', {
-        BackgroundColor3 = Library.BackgroundColor;
-        BorderColor3 = Library.OutlineColor;
-        Position = UDim2.new(0, 8, 0, 25);
-        Size = UDim2.new(1, -16, 1, -33);
-        ZIndex = 1;
-        Parent = Inner;
-    });
-
-    Library:AddToRegistry(MainSectionOuter, {
-        BackgroundColor3 = 'BackgroundColor';
-        BorderColor3 = 'OutlineColor';
-    });
-
-    local MainSectionInner = Library:Create('Frame', {
-        BackgroundColor3 = Library.BackgroundColor;
-        BorderColor3 = Color3.new(0, 0, 0);
-        BorderMode = Enum.BorderMode.Inset;
-        Position = UDim2.new(0, 0, 0, 0);
-        Size = UDim2.new(1, 0, 1, 0);
-        ZIndex = 1;
-        Parent = MainSectionOuter;
-    });
-
-    Library:AddToRegistry(MainSectionInner, {
-        BackgroundColor3 = 'BackgroundColor';
+    Library:AddToRegistry(WindowLabel, {
+        TextColor3 = 'FontColor';
     });
 
     local TabArea = Library:Create('Frame', {
         BackgroundTransparency = 1;
-        Position = UDim2.new(0, 8, 0, 8);
-        Size = UDim2.new(1, -16, 0, 21);
-        ZIndex = 1;
-        Parent = MainSectionInner;
+        Position = UDim2.new(0, 0, 0, 28);
+        Size = UDim2.new(1, 0, 0, 22);
+        ZIndex = 2;
+        Parent = Outer;
     });
 
     local TabListLayout = Library:Create('UIListLayout', {
@@ -3160,12 +3050,11 @@ function Library:CreateWindow(...)
     local TabContainer = Library:Create('Frame', {
         BackgroundColor3 = Library.MainColor;
         BorderColor3 = Library.OutlineColor;
-        Position = UDim2.new(0, 8, 0, 30);
-        Size = UDim2.new(1, -16, 1, -38);
+        Position = UDim2.new(0, 0, 0, 52);
+        Size = UDim2.new(1, 0, 1, -52);
         ZIndex = 2;
-        Parent = MainSectionInner;
+        Parent = Outer;
     });
-    
 
     Library:AddToRegistry(TabContainer, {
         BackgroundColor3 = 'MainColor';

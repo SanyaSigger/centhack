@@ -214,4 +214,5 @@ local SaveManager = {} do
 			self.Library:Notify(string.format('Auto loaded config %q', name));
 		end
 	end
-end
+
+return SaveManager
