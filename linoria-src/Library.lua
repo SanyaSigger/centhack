@@ -3318,6 +3318,25 @@ function Library:CreateWindow(...)
             Blocker.BackgroundTransparency = 0;
             TabButton.BackgroundColor3 = Library.MainColor;
             Library.RegistryMap[TabButton].Properties.BackgroundColor3 = 'MainColor';
+
+            -- Fade in animation
+            TabFrame.Visible = true;
+            TabFrame.BackgroundTransparency = 1;
+            local fadeConn;
+            fadeConn = RunService.Heartbeat:Connect(function(dt)
+                local t = TabFrame.BackgroundTransparency - dt * 2;
+                if t <= 0 then
+                    TabFrame.BackgroundTransparency = 0;
+                    fadeConn:Disconnect();
+                else
+                    TabFrame.BackgroundTransparency = t;
+                end
+            end);
+        end;
+
+            Blocker.BackgroundTransparency = 0;
+            TabButton.BackgroundColor3 = Library.MainColor;
+            Library.RegistryMap[TabButton].Properties.BackgroundColor3 = 'MainColor';
             TabFrame.Visible = true;
         end;
 
@@ -3325,7 +3344,19 @@ function Library:CreateWindow(...)
             Blocker.BackgroundTransparency = 1;
             TabButton.BackgroundColor3 = Library.BackgroundColor;
             Library.RegistryMap[TabButton].Properties.BackgroundColor3 = 'BackgroundColor';
-            TabFrame.Visible = false;
+
+            -- Fade out animation
+            local fadeConn;
+            fadeConn = RunService.Heartbeat:Connect(function(dt)
+                local t = TabFrame.BackgroundTransparency + dt * 2;
+                if t >= 1 then
+                    TabFrame.BackgroundTransparency = 1;
+                    TabFrame.Visible = false;
+                    fadeConn:Disconnect();
+                else
+                    TabFrame.BackgroundTransparency = t;
+                end
+            end);
         end;
 
         function Tab:SetLayoutOrder(Position)

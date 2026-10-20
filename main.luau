@@ -249,20 +249,6 @@ Library:OnUnload(function()
     print('[centhack] main unloaded')
 end)
 
--- Animated title: pulse text size every 0.5 seconds
-local RunService = game:GetService('RunService')
-local WindowLabel = Window:FindFirstChild('WindowLabel', true)
-if WindowLabel then
-    local baseSize = 20
-    local pulseTime = 0
-    RunService.Heartbeat:Connect(function(dt)
-        pulseTime = pulseTime + dt
-        if pulseTime >= 0.5 then
-            pulseTime = 0
-            local current = WindowLabel.TextSize
-            local target = (current == baseSize) and baseSize + 4 or baseSize
-            WindowLabel.TextSize = target
-        end
     end)
 end
 
