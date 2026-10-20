@@ -3143,6 +3143,13 @@ function Library:CreateViewport(Options)
     Cam.Parent = Viewport;
     Viewport.CurrentCamera = Cam;
 
+    -- the world model has to be bound to the viewport, otherwise nothing is
+    -- rendered inside the menu
+    Viewport.World = World;
+    Viewport.Ambient = Color3.fromRGB(180, 180, 180);
+    Viewport.LightColor = Color3.fromRGB(255, 255, 255);
+    Viewport.LightDirection = Vector3.new(-1, -1, -1);
+
     return {
         Viewport = Viewport;
         Camera = Cam;

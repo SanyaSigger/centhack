@@ -891,6 +891,41 @@ cheat.killaura = {
 }
 
 ----------------------------------------------------------------------
+-- SCREEN PROJECTION
+----------------------------------------------------------------------
+-- The custom FOV scales the camera CFrame (RightVector / UpVector), so
+-- WorldToViewportPoint no longer matches what is on screen. This helper
+-- reproduces the same projection for the wide FOV range.
+
+current_target_fov = nil
+
+local function world_to_viewport(world_pos)
+    local target_fov = current_target_fov
+    if target_fov and target_fov > 120 then
+        local w, h = Camera.ViewportSize.X, Camera.ViewportSize.Y
+        local cf = Camera.CFrame
+        local right = cf.RightVector.Unit
+        local up = cf.UpVector.Unit
+        local look = cf.LookVector.Unit
+
+        local relative = world_pos - cf.Position
+        local x_cam = relative:Dot(right)
+        local y_cam = relative:Dot(up)
+        local z_cam = relative:Dot(look)
+
+        local tan_fov = math.tan(math.rad(target_fov) / 2)
+        local aspect = w / h
+
+        local x_screen = (w / 2) * (1 + x_cam / (math.max(z_cam, 0.0001) * tan_fov * aspect))
+        local y_screen = (h / 2) * (1 - y_cam / (math.max(z_cam, 0.0001) * tan_fov))
+
+        return Vector3.new(x_screen, y_screen, z_cam), z_cam > 0
+    end
+    return Camera:WorldToViewportPoint(world_pos)
+end
+
+(function()
+----------------------------------------------------------------------
 -- ESP
 ----------------------------------------------------------------------
 -- Player, NPC and corpse overlays. Player and NPC share the same renderer
@@ -916,15 +951,15 @@ local function esp_default_settings()
         displayname_outline = false,
         dist_outline = false,
         weapon_outline = false,
-        box_color = { Color3.new(1, 1, 1), 1 },
+        box_color = { Color3.new(1, 1, 1), 0 },
         box_fill_color = { Color3.new(1, 0, 0), 0.5 },
-        realname_color = { Color3.new(1, 1, 1), 1 },
-        displayname_color = { Color3.new(1, 1, 1), 1 },
-        health_color = { Color3.new(1, 1, 1), 1 },
-        dist_color = { Color3.new(1, 1, 1), 1 },
-        weapon_color = { Color3.new(1, 1, 1), 1 },
-        skeleton_color = { Color3.new(1, 1, 1), 1 },
-        box_outline_color = { Color3.new(), 1 },
+        realname_color = { Color3.new(1, 1, 1), 0 },
+        displayname_color = { Color3.new(1, 1, 1), 0 },
+        health_color = { Color3.new(1, 1, 1), 0 },
+        dist_color = { Color3.new(1, 1, 1), 0 },
+        weapon_color = { Color3.new(1, 1, 1), 0 },
+        skeleton_color = { Color3.new(1, 1, 1), 0 },
+        box_outline_color = { Color3.new(), 0 },
         realname_outline_color = Color3.new(),
         displayname_outline_color = Color3.new(),
         dist_outline_color = Color3.new(),
@@ -1003,6 +1038,8 @@ local function esp_is_body_part(name)
         or name:find("Pilot") ~= nil
 end
 
+ESP.is_body_part = esp_is_body_part
+
 local esp_chams_container = Instance.new("Folder")
 esp_chams_container.Name = "CenthackESPChams"
 pcall(function()
@@ -1041,7 +1078,7 @@ local function esp_box_corners(cx, cy, cz, hx, hy, hz)
     local ys = { y0, y1, y1, y0, y0, y1, y1, y0 }
     local zs = { z0, z0, z1, z1, z0, z0, z1, z1 }
     for i = 1, 8 do
-        local s = Camera:WorldToViewportPoint(Vector3.new(xs[i], ys[i], zs[i]))
+        local s = world_to_viewport(Vector3.new(xs[i], ys[i], zs[i]))
         if s.X < minx then minx = s.X end
         if s.Y < miny then miny = s.Y end
         if s.X > maxx then maxx = s.X end
@@ -1059,10 +1096,10 @@ local function esp_static_box(root_position)
     local right = Camera.CFrame.RightVector
     local top = root_position + Vector3.new(0, ESP_STATIC_TOP, 0)
     local bottom = root_position - Vector3.new(0, ESP_STATIC_BOTTOM, 0)
-    local tl = Camera:WorldToViewportPoint(top - right * ESP_STATIC_W)
-    local tr = Camera:WorldToViewportPoint(top + right * ESP_STATIC_W)
-    local bl = Camera:WorldToViewportPoint(bottom - right * ESP_STATIC_W)
-    local br = Camera:WorldToViewportPoint(bottom + right * ESP_STATIC_W)
+    local tl = world_to_viewport(top - right * ESP_STATIC_W)
+    local tr = world_to_viewport(top + right * ESP_STATIC_W)
+    local bl = world_to_viewport(bottom - right * ESP_STATIC_W)
+    local br = world_to_viewport(bottom + right * ESP_STATIC_W)
     return math.floor(math.min(tl.X, bl.X)), math.floor(math.min(tl.Y, tr.Y)),
         math.floor(math.max(tr.X, br.X)), math.floor(math.max(bl.Y, br.Y))
 end
@@ -1301,7 +1338,7 @@ local function esp_render_target(rec)
         return
     end
 
-    local screen, onscreen = Camera:WorldToViewportPoint(head.Position)
+    local screen, onscreen = world_to_viewport(head.Position)
     if not onscreen or screen.Z <= 0 then
         esp_hide_target(rec)
         return
@@ -1631,6 +1668,8 @@ do
     end
 end
 
+
+end)()
 
 ----------------------------------------------------------------------
 -- INVENTORY CHECKER
@@ -2404,13 +2443,6 @@ local misc = {
     hitmarkers_outline_color = Color3.new(0, 0, 0),
     hitmarkers_lifetime = 0.7,
     hitmarkers_size = 8,
-    hitlogs = false,
-    hitlogs_valid_color = Color3.fromRGB(255, 85, 85),
-    hitlogs_invalid_color = Color3.fromRGB(255, 150, 150),
-    hitlogs_font = 2,
-    hitlogs_size = 14,
-    hitlogs_x = 0,
-    hitlogs_y = 0,
 }
 cheat.misc = misc
 
@@ -2440,6 +2472,7 @@ cheat.utility.new_renderstepped(function()
         target_fov = misc.fov_size
     end
     misc_current_fov = target_fov
+    current_target_fov = target_fov
 
     if target_fov then
         if target_fov > 120 then
@@ -2575,6 +2608,79 @@ end
 
 local misc_original_melee = {}
 
+-- Known melee skin models (used to clean the default knife back up).
+local MISC_KNOWN_SKIN_NAMES = {
+    Karambit = true, ButterflyKnife = true, IceAxe = true, PlasmaNinjato = true,
+    Greatsword = true, Longsword = true, Cutlass = true, IceDagger = true,
+    M9Fade = true, M9XR7 = true, AnarchyTomahawk = true, FlipKnifeShark = true,
+    Kukri = true, Scythe = true, GoldenDV2 = true,
+}
+
+-- Replaces the visible knife model in the viewmodel (the item swap alone only
+-- swaps the animation, the model stays the same).
+local function misc_apply_viewmodel_skin()
+    local skin_name = misc.melee_skin
+    if not skin_name or skin_name == "None" then return end
+
+    local viewmodel = Camera and (Camera:FindFirstChild("ViewModel") or Camera:FindFirstChildOfClass("Model"))
+    if not viewmodel then return end
+    local item = viewmodel:FindFirstChild("Item")
+    if not item then return end
+    local item_root = item:FindFirstChild("ItemRoot")
+    if not (item_root and item_root:IsA("BasePart")) then return end
+
+    -- hide the default knife parts
+    for _, child in ipairs(item:GetChildren()) do
+        if child:IsA("BasePart") and child.Name ~= skin_name then
+            child.Transparency = 1
+        end
+    end
+
+    local container = item:FindFirstChild(skin_name)
+    if not container then
+        local items_list = ReplicatedStorage:FindFirstChild("ItemsListModels")
+        local template = items_list and items_list:FindFirstChild(skin_name)
+        if not template then return end
+
+        local clone = template:Clone()
+        clone.Name = skin_name
+
+        local clone_root = clone:FindFirstChild("ItemRoot")
+        if clone_root and clone_root:IsA("BasePart") then
+            pcall(function() clone:PivotTo(item_root.CFrame) end)
+            local weld = Instance.new("WeldConstraint")
+            weld.Name = "CenthackSkinWeld"
+            weld.Part0 = clone_root
+            weld.Part1 = item_root
+            weld.Parent = clone_root
+        end
+
+        clone.Parent = item
+        container = clone
+    end
+
+    local mult = misc.melee_skin_scale or 1
+    for _, descendant in ipairs(container:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            if descendant.Name == "ItemRoot" then
+                descendant.Transparency = 1
+            else
+                descendant.Transparency = 0
+                if not descendant:GetAttribute("BaseSize") then
+                    descendant:SetAttribute("BaseSize", descendant.Size)
+                end
+                local base = descendant:GetAttribute("BaseSize")
+                if base then
+                    local target = Vector3.new(base.X * mult, base.Y * mult, base.Z * mult)
+                    if (descendant.Size - target).Magnitude > 0.001 then
+                        pcall(function() descendant.Size = target end)
+                    end
+                end
+            end
+        end
+    end
+end
+
 local function misc_apply_melee_skin(skin_name)
     local rp = ReplicatedStorage:FindFirstChild("Players")
     local pfolder = rp and rp:FindFirstChild(LocalPlayer.Name)
@@ -2675,30 +2781,28 @@ local function misc_apply_chams()
     local item = viewmodel:FindFirstChild("Item")
     if not item then return end
 
+    -- arms and hands are the grip parts, everything else belongs to the gun
     for _, descendant in ipairs(item:GetDescendants()) do
         if (descendant:IsA("MeshPart") or descendant:IsA("BasePart"))
             and descendant.Transparency < 1
-            and descendant.Name ~= "Muzzle" and descendant.Name ~= "SightMark"
-            and descendant.Name ~= "AimPart" and descendant.Name ~= "SmokePart"
+            and descendant.Name ~= "Muzzle" and descendant.Name ~= "AimPart"
             and descendant.Name ~= "FirePoint" and descendant.Name ~= "Flash"
-            and descendant.Name ~= "Flame"
         then
-            if misc.gun_chams then
-                local surface = descendant:FindFirstChildOfClass("SurfaceAppearance")
-                if surface then surface:Destroy() end
-                descendant.Material = Enum.Material[misc.gun_chams_material or "SmoothPlastic"]
-                descendant.Color = misc.gun_chams_color
-                descendant.Reflectance = 0
+            local color, material
+            if misc_is_grip(descendant) then
+                if not misc.arm_chams then continue end
+                color = misc.arm_chams_color
+                material = Enum.Material[misc.arm_chams_material or "SmoothPlastic"]
+            else
+                if not misc.gun_chams then continue end
+                color = misc.gun_chams_color
+                material = Enum.Material[misc.gun_chams_material or "SmoothPlastic"]
             end
-        end
-    end
 
-    for _, descendant in ipairs(item:GetDescendants()) do
-        if descendant:IsA("MeshPart") and misc_is_grip(descendant) and misc.arm_chams then
             local surface = descendant:FindFirstChildOfClass("SurfaceAppearance")
             if surface then surface:Destroy() end
-            descendant.Material = Enum.Material[misc.arm_chams_material or "SmoothPlastic"]
-            descendant.Color = misc.arm_chams_color
+            descendant.Material = material
+            descendant.Color = color
             descendant.Reflectance = 0
         end
     end
@@ -2709,7 +2813,6 @@ local function misc_apply_viewmodel_offset()
     if not viewmodel then return end
     local hrp = viewmodel:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
     local vector = Vector3.new(misc.viewmodel_x or 0, misc.viewmodel_y or 0, misc.viewmodel_z or 0)
     if vector.Magnitude < 0.001 then return end
 
@@ -2725,18 +2828,30 @@ local function misc_apply_viewmodel_offset()
         end
     end
 
-    apply_joint("LeftUpperArm")
-    apply_joint("RightUpperArm")
-    apply_joint("ItemRoot")
+    -- the root joint moves the whole viewmodel (hands *and* weapon) as one
+    -- body, so the weapon no longer stays behind when the hands move
+    if hrp:FindFirstChild("Motor6D") then
+        apply_joint("Motor6D")
+    else
+        apply_joint("LeftUpperArm")
+        apply_joint("RightUpperArm")
+        apply_joint("ItemRoot")
+    end
 end
 
 cheat.utility.new_heartbeat(function()
     local has_offset = (misc.viewmodel_x or 0) ~= 0 or (misc.viewmodel_y or 0) ~= 0 or (misc.viewmodel_z or 0) ~= 0
+    local has_chams = (misc.arm_chams or misc.gun_chams)
+    local has_skin = (misc.melee_skin and misc.melee_skin ~= "None")
+    if not has_offset and not has_chams and not has_skin then return end
     if has_offset then
         misc_apply_viewmodel_offset()
     end
-    if misc.arm_chams or misc.gun_chams then
+    if has_chams then
         misc_apply_chams()
+    end
+    if has_skin then
+        misc_apply_viewmodel_skin()
     end
 end)
 
@@ -2923,139 +3038,29 @@ cheat.utility.new_renderstepped(function()
     end
 end)
 
-cheat.hitlogs = { pending = {}, active = {} }
-
-function cheat.hitlogs.create(segments, spawn_time)
-    local segs = {}
-    for _, segment in ipairs(segments) do
-        segs[#segs + 1] = {
-            drawing = cheat.utility.new_drawing("Text", {
-                Text = segment.text,
-                Size = misc.hitlogs_size,
-                Font = misc.hitlogs_font,
-                Center = false,
-                Outline = true,
-                Color = segment.color or Color3.new(1, 1, 1),
-                Position = Vector2.new(-300, -300),
-                Visible = true,
-                ZIndex = 101,
-            }),
-            color = segment.color,
-            color_key = segment.color_key,
-        }
-    end
-    return { segments = segs, spawn_tick = spawn_time }
-end
-
-function cheat.hitlogs.remove(log)
-    for _, segment in ipairs(log.segments) do
-        cheat.utility.remove_drawing(segment.drawing)
-    end
-end
-
-function cheat.hitlogs.format(shot, valid, damage)
-    local name = shot.name or "unknown"
-    if valid then
-        return {
-            { text = "shot hit " },
-            { text = name, color = Color3.fromRGB(170, 170, 170) },
-            { text = ", " },
-            { text = tostring(damage or 0) .. "hp", color_key = "hp" },
-            { text = " dealt" },
-        }
-    end
-    return {
-        { text = "shot invalid on " },
-        { text = name, color_key = "invalid" },
-    }
-end
+-- PENDING HITS -----------------------------------------------------------
+-- A confirmed hit (the projectile inflict fired) is processed here: the
+-- hitmarker, the hit effect and the damage numbers are all driven by it.
+cheat.hitlogs = { pending = {} }
 
 cheat.utility.new_renderstepped(function()
     local now = os.clock()
-
-    for i = #cheat.hitlogs.pending, 1, -1 do
-        local pending = cheat.hitlogs.pending[i]
-        if now - pending.tick > 0.15 then
+    local pending = cheat.hitlogs.pending
+    for i = #pending, 1, -1 do
+        local entry = pending[i]
+        if now - entry.tick > 0.15 then
             local damage = 0
-            if pending.humanoid and pending.humanoid.Parent then
-                damage = math.max(0, math.floor(pending.health_before - pending.humanoid.Health + 0.5))
+            if entry.humanoid and entry.humanoid.Parent then
+                damage = math.max(0, math.floor(entry.health_before - entry.humanoid.Health + 0.5))
             end
             if misc.hit_effect then
-                cheat.utility.spawn_hit_effect(pending.hit_pos)
+                cheat.utility.spawn_hit_effect(entry.hit_pos)
             end
             if misc.damage_numbers and damage > 0 then
-                cheat.utility.spawn_damage_number(pending.hit_pos, damage)
+                cheat.utility.spawn_damage_number(entry.hit_pos, damage)
             end
-            if misc.hitlogs then
-                local str = cheat.hitlogs.format(pending, true, damage)
-                table.insert(cheat.hitlogs.active, 1, cheat.hitlogs.create(str, now))
-            end
-            table.remove(cheat.hitlogs.pending, i)
+            table.remove(pending, i)
         end
-    end
-
-    if not misc.hitlogs then
-        for i = #cheat.hitlogs.active, 1, -1 do
-            cheat.hitlogs.remove(cheat.hitlogs.active[i])
-            table.remove(cheat.hitlogs.active, i)
-        end
-        return
-    end
-
-    while #cheat.hitlogs.active > 6 do
-        local oldest = table.remove(cheat.hitlogs.active)
-        if oldest then cheat.hitlogs.remove(oldest) end
-    end
-
-    for i = #cheat.hitlogs.active, 1, -1 do
-        local log = cheat.hitlogs.active[i]
-        if now - log.spawn_tick > 5 then
-            cheat.hitlogs.remove(log)
-            table.remove(cheat.hitlogs.active, i)
-        end
-    end
-
-    local viewport = Camera.ViewportSize
-    local gap = 6
-    local total_height = 0
-    for _, log in ipairs(cheat.hitlogs.active) do
-        local width, height = 0, 0
-        for _, segment in ipairs(log.segments) do
-            segment.drawing.Size = misc.hitlogs_size
-            segment.drawing.Font = misc.hitlogs_font
-            local bounds = segment.drawing.TextBounds
-            segment.width = bounds.X
-            width = width + bounds.X
-            if bounds.Y > height then height = bounds.Y end
-        end
-        log.width = width
-        log.height = height
-        total_height = total_height + height + gap
-    end
-    total_height = math.max(0, total_height - gap)
-
-    local anchor_x = viewport.X / 2 + (misc.hitlogs_x or 0)
-    local next_y = viewport.Y / 2 + (misc.hitlogs_y or 0) - total_height / 2
-
-    for _, log in ipairs(cheat.hitlogs.active) do
-        local age = now - log.spawn_tick
-        local alpha = math.clamp(age / 0.12, 0, 1)
-        if age > 4 then alpha = math.min(alpha, 1 - (age - 4)) end
-
-        local x = anchor_x - log.width / 2
-        for _, segment in ipairs(log.segments) do
-            segment.drawing.Position = Vector2.new(x, next_y)
-            if segment.color_key == "hp" then
-                segment.drawing.Color = misc.hitlogs_valid_color
-            elseif segment.color_key == "invalid" then
-                segment.drawing.Color = misc.hitlogs_invalid_color
-            elseif segment.color then
-                segment.drawing.Color = segment.color
-            end
-            segment.drawing.Transparency = math.clamp(alpha, 0, 1)
-            x = x + segment.width
-        end
-        next_y = next_y + log.height + gap
     end
 end)
 
@@ -3126,6 +3131,7 @@ ui.tabs = {
     combat = wrap_box(ui.window:AddTab('Combat'), "page"),
     esp = wrap_box(ui.window:AddTab('ESP'), "page"),
     visuals = wrap_box(ui.window:AddTab('Visuals'), "page"),
+    misc = wrap_box(ui.window:AddTab('Misc'), "page"),
     config = wrap_box(ui.window:AddTab('Config'), "page"),
 }
 
@@ -3747,6 +3753,769 @@ tracer_box:AddSlider('tracer_lifetime', {
 })
 
 ----------------------------------------------------------------------
+-- MISC TAB (player tab)
+----------------------------------------------------------------------
+-- Left: movement + player mods | right: player visuals + extras
+
+local misc_movement_box = ui.tabs.misc:AddLeftGroupbox('MOVEMENT')
+local misc_playermods_box = ui.tabs.misc:AddLeftGroupbox('PLAYER MODS')
+local misc_visuals_box = ui.tabs.misc:AddRightGroupbox('PLAYER VISUALS')
+local misc_extras_box = ui.tabs.misc:AddRightGroupbox('EXTRAS')
+
+-- MOVEMENT ------------------------------------------------------------------
+
+local movement = {
+    speed_enabled = false,
+    speed = 18.2,
+    bhop_enabled = false,
+    bhop_velocity = 22,
+    no_fall = false,
+    anti_drown = false,
+    jesus = false,
+    wallclimb = false,
+    wallclimb_speed = 35,
+    thirdperson = false,
+    thirdperson_distance = 10,
+    thirdperson_y = 0,
+    zoom_fade = true,
+    zoom_fade_speed = 14,
+    zoom_fade_target = 1,
+}
+
+misc_movement_box:AddToggle('mv_speed_enabled', {
+    Text = 'speedhack enabled',
+    Default = false,
+    Callback = function(v)
+        movement.speed_enabled = v
+    end,
+})
+
+misc_movement_box:AddSlider('mv_speed', {
+    Text = 'speed',
+    Default = 18.2, Min = 10, Max = 22, Rounding = 1, Suffix = 'sps', Compact = true,
+    Callback = function(v)
+        movement.speed = v
+    end,
+})
+
+misc_movement_box:AddToggle('mv_bhop', {
+    Text = 'bunny hop',
+    Default = false,
+    Callback = function(v)
+        movement.bhop_enabled = v
+    end,
+})
+
+misc_movement_box:AddSlider('mv_bhop_velocity', {
+    Text = 'bhop velocity',
+    Default = 22, Min = 1, Max = 100, Rounding = 0, Suffix = ' studs', Compact = true,
+    Callback = function(v)
+        movement.bhop_velocity = v
+    end,
+})
+
+misc_movement_box:AddToggle('mv_no_fall', {
+    Text = 'no fall damage',
+    Default = false,
+    Callback = function(v)
+        movement.no_fall = v
+    end,
+})
+
+misc_movement_box:AddToggle('mv_anti_drown', {
+    Text = 'anti drown',
+    Default = false,
+    Callback = function(v)
+        movement.anti_drown = v
+    end,
+})
+
+misc_movement_box:AddToggle('mv_jesus', {
+    Text = 'jesus (walk on water)',
+    Default = false,
+    Callback = function(v)
+        movement.jesus = v
+    end,
+})
+
+misc_movement_box:AddToggle('mv_wallclimb', {
+    Text = 'wallclimb',
+    Default = false,
+    Tooltip = 'Hold W against a wall while holding Space to climb straight up it.',
+    Callback = function(v)
+        movement.wallclimb = v
+    end,
+})
+
+misc_movement_box:AddSlider('mv_wallclimb_speed', {
+    Text = 'climb speed',
+    Default = 35, Min = 5, Max = 80, Rounding = 0, Suffix = 'sps', Compact = true,
+    Callback = function(v)
+        movement.wallclimb_speed = v
+    end,
+})
+
+misc_movement_box:AddToggle('mv_thirdperson', {
+    Text = 'enable 3rd person',
+    Default = false,
+    Callback = function(v)
+        movement.thirdperson = v
+    end,
+})
+
+misc_movement_box:AddSlider('mv_thirdperson_distance', {
+    Text = 'distance',
+    Default = 10, Min = 0, Max = 15, Rounding = 1, Compact = true,
+    Callback = function(v)
+        movement.thirdperson_distance = v
+    end,
+})
+
+misc_movement_box:AddSlider('mv_thirdperson_y', {
+    Text = 'y offset',
+    Default = 0, Min = -10, Max = 10, Rounding = 1, Compact = true,
+    Callback = function(v)
+        movement.thirdperson_y = v
+    end,
+})
+
+misc_movement_box:AddToggle('mv_zoom_fade', {
+    Text = 'fade on zoom',
+    Default = true,
+    Tooltip = 'Smoothly fades out your character while aiming, scoping or zooming.',
+    Callback = function(v)
+        movement.zoom_fade = v
+    end,
+})
+
+misc_movement_box:AddSlider('mv_zoom_fade_speed', {
+    Text = 'fade speed',
+    Default = 14, Min = 2, Max = 30, Rounding = 1, Compact = true,
+    Callback = function(v)
+        movement.zoom_fade_speed = v
+    end,
+})
+
+misc_movement_box:AddSlider('mv_zoom_fade_target', {
+    Text = 'fade transparency',
+    Default = 1, Min = 0.1, Max = 1, Rounding = 2, Compact = true,
+    Callback = function(v)
+        movement.zoom_fade_target = v
+    end,
+})
+
+-- PLAYER MODS ---------------------------------------------------------------
+
+local player_mods = {
+    remove_animations = false,
+    chat_spammer = false,
+    chat_mode = 'continuous',
+    chat_message = 'gg ez',
+    chat_delay = 0.5,
+    spin = false,
+    spin_speed = 10,
+}
+
+misc_playermods_box:AddToggle('pm_remove_animations', {
+    Text = 'remove animations',
+    Default = false,
+    Callback = function(v)
+        player_mods.remove_animations = v
+        pcall(function() cheat.apply_remove_animations(v) end)
+    end,
+})
+
+misc_playermods_box:AddToggle('pm_chat_spammer', {
+    Text = 'chat spammer',
+    Default = false,
+    Callback = function(v)
+        player_mods.chat_spammer = v
+    end,
+})
+
+misc_playermods_box:AddDropdown('pm_chat_mode', {
+    Text = 'spam mode',
+    Values = { 'continuous', 'on kill' },
+    Default = 1,
+    Multi = false,
+    Callback = function(v)
+        player_mods.chat_mode = v
+    end,
+})
+
+misc_playermods_box:AddInput('pm_chat_message', {
+    Text = 'message',
+    Default = 'gg ez',
+    Finished = true,
+    Callback = function(v)
+        if v and v ~= "" then player_mods.chat_message = v end
+    end,
+})
+
+misc_playermods_box:AddSlider('pm_chat_delay', {
+    Text = 'chat spam delay',
+    Default = 0.5, Min = 0.1, Max = 5, Rounding = 1, Suffix = 's', Compact = true,
+    Callback = function(v)
+        player_mods.chat_delay = v
+    end,
+})
+
+misc_playermods_box:AddToggle('pm_spin', {
+    Text = 'spin character (client)',
+    Default = false,
+    Callback = function(v)
+        player_mods.spin = v
+    end,
+})
+
+misc_playermods_box:AddSlider('pm_spin_speed', {
+    Text = 'spin speed (rpm)',
+    Default = 10, Min = 0.1, Max = 100, Rounding = 1, Compact = true,
+    Callback = function(v)
+        player_mods.spin_speed = v
+    end,
+})
+
+-- PLAYER VISUALS ------------------------------------------------------------
+
+local player_visuals = {
+    transparency = 0,
+    color_override = false,
+    color = Color3.new(1, 1, 1),
+    material_override = false,
+    material = 'ForceField',
+    cam_x = 0,
+    cam_y = 0,
+    cam_z = 0,
+}
+
+misc_visuals_box:AddSlider('pv_transparency', {
+    Text = 'character transparency',
+    Default = 0, Min = 0, Max = 1, Rounding = 2, Compact = true,
+    Tooltip = 'Local only transparency for the character, clothes and weapons.',
+    Callback = function(v)
+        player_visuals.transparency = v
+    end,
+})
+
+misc_visuals_box:AddToggle('pv_color_override', {
+    Text = 'override character color',
+    Default = false,
+    Callback = function(v)
+        player_visuals.color_override = v
+    end,
+}):AddColorPicker('pv_color', {
+    Default = player_visuals.color,
+    Title = 'character color',
+    Transparency = 0,
+    Callback = function(v)
+        player_visuals.color = v
+    end,
+})
+
+misc_visuals_box:AddToggle('pv_material_override', {
+    Text = 'override character material',
+    Default = false,
+    Callback = function(v)
+        player_visuals.material_override = v
+    end,
+})
+
+misc_visuals_box:AddDropdown('pv_material', {
+    Text = 'character material',
+    Values = {
+        'ForceField', 'Neon', 'SmoothPlastic', 'Glass', 'Plastic', 'Metal',
+        'Foil', 'DiamondPlate', 'CorrodedMetal', 'Cobblestone', 'Wood', 'Ice',
+    },
+    Default = 1,
+    Multi = false,
+    Callback = function(v)
+        player_visuals.material = v
+    end,
+})
+
+misc_visuals_box:AddSlider('pv_cam_x', {
+    Text = 'cam x', Default = 0, Min = -20, Max = 20, Rounding = 1, Suffix = ' st', Compact = true,
+    Callback = function(v) player_visuals.cam_x = v end,
+})
+
+misc_visuals_box:AddSlider('pv_cam_y', {
+    Text = 'cam y', Default = 0, Min = -20, Max = 20, Rounding = 1, Suffix = ' st', Compact = true,
+    Callback = function(v) player_visuals.cam_y = v end,
+})
+
+misc_visuals_box:AddSlider('pv_cam_z', {
+    Text = 'cam z', Default = 0, Min = -20, Max = 20, Rounding = 1, Suffix = ' st', Compact = true,
+    Callback = function(v) player_visuals.cam_z = v end,
+})
+
+-- EXTRAS -------------------------------------------------------------------
+
+local extras = {
+    report_enabled = false,
+    report_x = 20,
+    report_y = 700,
+    car_speed = false,
+    car_speed_mult = 1.5,
+    avatar_userid = "10167040548",
+    avatar_applied = false,
+}
+
+misc_extras_box:AddToggle('ex_report_enabled', {
+    Text = 'show report count',
+    Default = false,
+    Tooltip = 'Shows the current report counter on screen.',
+    Callback = function(v)
+        extras.report_enabled = v
+    end,
+})
+
+misc_extras_box:AddSlider('ex_report_x', {
+    Text = 'report x', Default = 20, Min = 0, Max = 2000, Rounding = 0, Compact = true,
+    Callback = function(v) extras.report_x = v end,
+})
+
+misc_extras_box:AddSlider('ex_report_y', {
+    Text = 'report y', Default = 700, Min = 0, Max = 1200, Rounding = 0, Compact = true,
+    Callback = function(v) extras.report_y = v end,
+})
+
+misc_extras_box:AddToggle('ex_car_speed', {
+    Text = 'car speed hack',
+    Default = false,
+    Callback = function(v)
+        extras.car_speed = v
+    end,
+})
+
+misc_extras_box:AddSlider('ex_car_speed_mult', {
+    Text = 'speed multiplier', Default = 1.5, Min = 1, Max = 5, Rounding = 1, Compact = true,
+    Callback = function(v) extras.car_speed_mult = v end,
+})
+
+misc_extras_box:AddInput('ex_avatar_userid', {
+    Text = 'avatar userid',
+    Default = extras.avatar_userid,
+    ClearText = false,
+    Callback = function(v)
+        if v and v ~= "" then extras.avatar_userid = v end
+    end,
+})
+
+misc_extras_box:AddButton('ex_set_avatar', function()
+    local user_id = tonumber(extras.avatar_userid)
+    if not user_id then
+        if cheat.Library and cheat.Library.Notify then
+            cheat.Library:Notify("Invalid UserId: " .. tostring(extras.avatar_userid))
+        end
+        return
+    end
+
+    local success, model = pcall(Players.CreateHumanoidModelFromUserId, Players, user_id, Enum.HumanoidRigType.R15)
+    if not (success and model) then
+        success, model = pcall(Players.CreateHumanoidModelFromUserId, Players, user_id, Enum.HumanoidRigType.R6)
+    end
+    if not (success and model) then return end
+
+    local character = LocalPlayer.Character
+    if not character then
+        model:Destroy()
+        return
+    end
+
+    local ok = pcall(function()
+        for _, child in ipairs(character:GetChildren()) do
+            if child:IsA("Accessory") or child:GetAttribute("ItemType") then
+                child:Destroy()
+            end
+        end
+
+        for _, class in ipairs({ 'Shirt', 'Pants', 'ShirtGraphic' }) do
+            local wanted = model:FindFirstChildOfClass(class)
+            local mine = character:FindFirstChildOfClass(class)
+            if wanted then
+                if mine then
+                    if class == 'Shirt' then mine.ShirtTemplate = wanted.ShirtTemplate end
+                    if class == 'Pants' then mine.PantsTemplate = wanted.PantsTemplate end
+                    if class == 'ShirtGraphic' then mine.Graphic = wanted.Graphic end
+                else
+                    local clone = wanted:Clone()
+                    clone.Parent = character
+                end
+            elseif mine then
+                mine:Destroy()
+            end
+        end
+
+        for _, child in ipairs(model:GetChildren()) do
+            if child:IsA("Accessory") then
+                local clone = child:Clone()
+                local handle = clone:FindFirstChild('Handle')
+                if handle then
+                    local weld = handle:FindFirstChildOfClass('Weld') or handle:FindFirstChild('AccessoryWeld')
+                    if not weld then
+                        weld = Instance.new('Weld')
+                        weld.Name = 'AccessoryWeld'
+                        weld.Parent = handle
+                    end
+                    weld.Part0 = handle
+                    weld.Part1 = character:FindFirstChild('Head') or character:FindFirstChild('UpperTorso')
+                    if weld.Part1 then clone.Parent = character end
+                end
+            end
+        end
+
+        for _, part in ipairs(character:GetDescendants()) do
+            local wanted = model:FindFirstChild(part.Name)
+            if wanted and part:IsA('BasePart') and wanted:IsA('BasePart') then
+                part.Color = wanted.Color
+                part.Material = wanted.Material
+                part.Size = wanted.Size
+                if part:IsA('MeshPart') and wanted:IsA('MeshPart') then
+                    part.MeshId = wanted.MeshId
+                    part.TextureID = wanted.TextureID
+                end
+                local surface = part:FindFirstChildOfClass('SurfaceAppearance')
+                if surface then surface:Destroy() end
+                local wanted_surface = wanted:FindFirstChildOfClass('SurfaceAppearance')
+                if wanted_surface then
+                    wanted_surface:Clone().Parent = part
+                end
+            end
+        end
+    end)
+
+    if not ok then
+        extras.avatar_applied = false
+    else
+        extras.avatar_applied = true
+    end
+    model:Destroy()
+end)
+
+-- IMPLEMENTATION ------------------------------------------------------------
+
+-- Shared "remove animations" applier: disables the character Animate script
+-- and stops every playing animation track.
+cheat.apply_remove_animations = function(v)
+    local character = LocalPlayer.Character
+    if not character then return end
+    local animate = character:FindFirstChild("Animate")
+    if animate then
+        animate.Disabled = v
+    end
+    if not v then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    if not animator then return end
+    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+        pcall(function() track:Stop() end)
+    end
+end
+
+do
+    local wallclimb_params = RaycastParams.new()
+    wallclimb_params.FilterType = Enum.RaycastFilterType.Exclude
+    wallclimb_params.IgnoreWater = true
+
+    local water_part = nil
+    local spin_angle = 0
+    local fade_current = 0
+    local last_fade = 0
+
+    local TextChatService = game:GetService("TextChatService")
+    local function send_chat_message(message)
+        pcall(function()
+            if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+                local channel = TextChatService.TextChannels:FindFirstChild('RBXGeneral')
+                if channel then
+                    channel:SendAsync(message)
+                elseif TextChatService.ChatInputBarConfiguration
+                    and TextChatService.ChatInputBarConfiguration.TargetTextChannel then
+                    TextChatService.ChatInputBarConfiguration.TargetTextChannel:SendAsync(message)
+                end
+            else
+                local say = ReplicatedStorage:FindFirstChild('DefaultChatSystemChatEvents')
+                    and ReplicatedStorage.DefaultChatSystemChatEvents:FindFirstChild('SayMessageRequest')
+                if say then say:FireServer(message, 'All') end
+            end
+        end)
+    end
+
+    -- report counter window
+    local report_gui = Instance.new('ScreenGui')
+    report_gui.Name = 'CenthackReportGui'
+    report_gui.ResetOnSpawn = false
+    report_gui.IgnoreGuiInset = true
+    report_gui.DisplayOrder = 999
+    pcall(function()
+        local coregui = game:GetService('CoreGui')
+        report_gui.Parent = (coregui:FindFirstChild('RobloxGui')) or coregui
+    end)
+
+    local report_label = Instance.new('TextLabel')
+    report_label.BackgroundTransparency = 1
+    report_label.BorderSizePixel = 0
+    report_label.Font = Enum.Font.Code
+    report_label.TextSize = 13
+    report_label.TextColor3 = Color3.fromRGB(255, 60, 60)
+    report_label.TextXAlignment = Enum.TextXAlignment.Left
+    report_label.Text = 'Count: 0'
+    report_label.Size = UDim2.fromOffset(170, 16)
+    report_label.Position = UDim2.fromOffset(extras.report_x, extras.report_y)
+    report_label.Visible = false
+    report_label.Parent = report_gui
+
+    local function get_report_count()
+        local rs = ReplicatedStorage:FindFirstChild('Players')
+        local me = rs and rs:FindFirstChild(LocalPlayer.Name)
+        local status = me and me:FindFirstChild('Status')
+        local uac = status and status:FindFirstChild('UAC')
+        local reports = uac and uac:FindFirstChild('Reports')
+        if not reports then return 0 end
+        local total = 0
+        for _, count in pairs(reports:GetAttributes()) do
+            if type(count) == 'number' then total = total + count end
+        end
+        return total
+    end
+
+    cheat.utility.new_renderstepped(function(delta)
+        local frame_delta = math.clamp(tonumber(delta) or 0, 0, 0.1)
+
+        -- report counter
+        report_label.Visible = extras.report_enabled
+        if extras.report_enabled then
+            report_label.Position = UDim2.fromOffset(extras.report_x, extras.report_y)
+            report_label.Text = string.format('Count: %d', get_report_count())
+        end
+
+        local character = LocalPlayer.Character
+        if not character then
+            fade_current = 0
+            last_fade = 0
+            return
+        end
+
+        -- speedhack
+        if movement.speed_enabled then
+            local humanoid = character:FindFirstChildOfClass('Humanoid')
+            if humanoid then humanoid.WalkSpeed = movement.speed end
+        end
+
+        -- bunny hop
+        if movement.bhop_enabled and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            local humanoid = character:FindFirstChildOfClass('Humanoid')
+            local root = character:FindFirstChild('HumanoidRootPart')
+            if humanoid and root and humanoid.Health > 0 and humanoid.FloorMaterial ~= Enum.Material.Air then
+                root.Velocity = Vector3.new(root.Velocity.X, movement.bhop_velocity, root.Velocity.Z)
+            end
+        end
+
+        -- no fall damage
+        if movement.no_fall then
+            local humanoid = character:FindFirstChildOfClass('Humanoid')
+            local root = character:FindFirstChild('HumanoidRootPart')
+            if humanoid and root and humanoid:GetState() == Enum.HumanoidStateType.Freefall then
+                if root.AssemblyLinearVelocity.Y < -12.5 then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Landed)
+                end
+            end
+        end
+
+        -- anti drown
+        if movement.anti_drown then
+            local rs = ReplicatedStorage:FindFirstChild('Players')
+            local me = rs and rs:FindFirstChild(LocalPlayer.Name)
+            local status = me and me:FindFirstChild('Status')
+            local vars = status and status:FindFirstChild('GameplayVariables')
+            if vars then
+                pcall(function() vars:SetAttribute('Drowning', false) end)
+            end
+        end
+
+        -- jesus (walk on water)
+        if movement.jesus then
+            local root = character:FindFirstChild('HumanoidRootPart')
+            if root then
+                local ray = Ray.new(root.Position, Vector3.new(0, -10, 0))
+                local _, position, _, material = workspace:FindPartOnRayWithWhitelist(ray, { workspace.Terrain })
+                if material == Enum.Material.Water then
+                    if not water_part then
+                        local parent = workspace:FindFirstChild('NoCollision') or workspace
+                        water_part = Instance.new('Part', parent)
+                        water_part.Transparency = 1
+                        water_part.Size = Vector3.new(10, 1, 10)
+                        water_part.CanCollide = true
+                        water_part.Anchored = true
+                    else
+                        water_part.Position = position
+                    end
+                elseif water_part then
+                    water_part:Destroy()
+                    water_part = nil
+                end
+            end
+        elseif water_part then
+            water_part:Destroy()
+            water_part = nil
+        end
+
+        -- wall climb
+        if movement.wallclimb then
+            local root = character:FindFirstChild('HumanoidRootPart')
+            local humanoid = character:FindFirstChildOfClass('Humanoid')
+            if root and humanoid and humanoid.Health > 0
+                and UserInputService:IsKeyDown(Enum.KeyCode.W)
+                and UserInputService:IsKeyDown(Enum.KeyCode.Space)
+            then
+                local camera = Camera.CFrame
+                local forward = Vector3.new(camera.LookVector.X, 0, camera.LookVector.Z)
+                if forward.Magnitude > 0.05 then
+                    forward = forward.Unit
+                    wallclimb_params.FilterDescendantsInstances = { character, Camera }
+                    local hit = workspace:Raycast(root.Position, forward * 2.5, wallclimb_params)
+                    if hit then
+                        local velocity = root.AssemblyLinearVelocity
+                        root.AssemblyLinearVelocity = Vector3.new(velocity.X, movement.wallclimb_speed, velocity.Z)
+                    end
+                end
+            end
+        end
+
+        -- spin character
+        if player_mods.spin then
+            local lower = character:FindFirstChild('LowerTorso')
+            local joint = lower and lower:FindFirstChild('Root')
+            if joint and joint:IsA('Motor6D') then
+                if not joint:GetAttribute('OriginalC0') then
+                    joint:SetAttribute('OriginalC0', joint.C0)
+                end
+                local per_second = player_mods.spin_speed * (math.pi * 2) / 60
+                spin_angle = (spin_angle + (per_second * frame_delta)) % (math.pi * 2)
+                joint.C0 = joint:GetAttribute('OriginalC0') * CFrame.Angles(0, spin_angle, 0)
+            end
+        else
+            local lower = character:FindFirstChild('LowerTorso')
+            local joint = lower and lower:FindFirstChild('Root')
+            if joint and joint:GetAttribute('OriginalC0') then
+                joint.C0 = joint:GetAttribute('OriginalC0')
+                joint:SetAttribute('OriginalC0', nil)
+            end
+        end
+
+        -- character transparency / colour / material
+        if player_visuals.transparency > 0.01 then
+            for _, object in ipairs(character:GetDescendants()) do
+                if object:IsA('BasePart') or object:IsA('Decal') or object:IsA('Texture') then
+                    if not object:GetAttribute('_pv_orig_trans') then
+                        object:SetAttribute('_pv_orig_trans', object.Transparency)
+                    end
+                    object.Transparency = player_visuals.transparency
+                    if object:IsA('BasePart') then
+                        object.LocalTransparencyModifier = player_visuals.transparency
+                    end
+                end
+            end
+        end
+
+        if player_visuals.color_override then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA('BasePart') then
+                    if not part:GetAttribute('_pv_orig_color') then
+                        part:SetAttribute('_pv_orig_color', part.Color)
+                    end
+                    part.Color = player_visuals.color
+                end
+            end
+        end
+
+        if player_visuals.material_override then
+            local material = Enum.Material[player_visuals.material]
+            if material then
+                for _, part in ipairs(character:GetDescendants()) do
+                    if part:IsA('BasePart') then
+                        if not part:GetAttribute('_pv_orig_mat') then
+                            part:SetAttribute('_pv_orig_mat', part.Material.Name)
+                        end
+                        part.Material = material
+                    end
+                end
+            end
+        end
+
+        -- camera offset
+        if player_visuals.cam_x ~= 0 or player_visuals.cam_y ~= 0 or player_visuals.cam_z ~= 0 then
+            local camera = workspace.CurrentCamera
+            if camera then
+                camera.CFrame = camera.CFrame * CFrame.new(player_visuals.cam_x, player_visuals.cam_y, player_visuals.cam_z)
+            end
+        end
+
+        -- third person fade
+        local scoping = false
+        if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+            scoping = true
+        else
+            local rs = ReplicatedStorage:FindFirstChild('Players')
+            local me = rs and rs:FindFirstChild(LocalPlayer.Name)
+            local status = me and me:FindFirstChild('Status')
+            local vars = status and status:FindFirstChild('GameplayVariables')
+            local aiming = vars and vars:GetAttribute('Aiming')
+            local aiming_value = vars and vars:FindFirstChild('Aiming') and vars.Aiming.Value
+            scoping = (aiming == true) or (aiming_value ~= nil and aiming_value ~= false)
+        end
+
+        local target_fade = (movement.zoom_fade and scoping) and movement.zoom_fade_target or 0
+        if math.abs(target_fade - fade_current) > 0.001 then
+            fade_current = fade_current + (target_fade - fade_current) * math.clamp(frame_delta * movement.zoom_fade_speed, 0, 1)
+        else
+            fade_current = target_fade
+        end
+
+        if fade_current > 0.001 or last_fade > 0.001 then
+            last_fade = fade_current
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA('BasePart') and part.Transparency < 1 then
+                    part.LocalTransparencyModifier = fade_current
+                end
+            end
+        end
+    end)
+
+    -- chat spammer
+    task.spawn(function()
+        while cheat.alive do
+            if player_mods.chat_spammer and player_mods.chat_message ~= '' then
+                if player_mods.chat_mode == 'continuous' then
+                    send_chat_message(player_mods.chat_message)
+                end
+            end
+            task.wait(player_mods.chat_delay)
+        end
+    end)
+
+    -- car speed
+    cheat.utility.new_heartbeat(function()
+        if not extras.car_speed then return end
+        pcall(function()
+            local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass('Humanoid')
+            local seat = humanoid and humanoid.SeatPart
+            if seat and seat:IsA('VehicleSeat') then
+                local look = seat.CFrame.LookVector
+                local speed = seat.AssemblyLinearVelocity:Dot(look)
+                local limit = 120 * extras.car_speed_mult
+                if speed < limit then
+                    seat.AssemblyLinearVelocity = look * (speed + 2 * extras.car_speed_mult)
+                end
+            end
+        end)
+    end)
+end
+
+
+----------------------------------------------------------------------
 -- ESP UI
 ----------------------------------------------------------------------
 
@@ -3891,6 +4660,14 @@ local function add_esp_module(box, prefix, settings, master_text)
         end,
     })
 
+    box:AddSlider(prefix .. "_displayname_transparency", {
+        Text = 'display name transparency',
+        Default = 0, Min = 0, Max = 1, Rounding = 2, Compact = true,
+        Callback = function(v)
+            settings.displayname_color[2] = v
+        end,
+    })
+
     local health_toggle = box:AddToggle(prefix .. "_health", {
         Text = 'health esp',
         Default = false,
@@ -3967,6 +4744,14 @@ local function add_esp_module(box, prefix, settings, master_text)
         end,
     })
 
+    box:AddSlider(prefix .. "_distance_transparency", {
+        Text = 'distance transparency',
+        Default = 0, Min = 0, Max = 1, Rounding = 2, Compact = true,
+        Callback = function(v)
+            settings.dist_color[2] = v
+        end,
+    })
+
     box:AddToggle(prefix .. "_weapon", {
         Text = 'weapon esp',
         Default = false,
@@ -3982,6 +4767,14 @@ local function add_esp_module(box, prefix, settings, master_text)
         end,
     })
 
+    box:AddSlider(prefix .. "_weapon_transparency", {
+        Text = 'weapon transparency',
+        Default = 0, Min = 0, Max = 1, Rounding = 2, Compact = true,
+        Callback = function(v)
+            settings.weapon_color[2] = v
+        end,
+    })
+
     box:AddToggle(prefix .. "_skeleton", {
         Text = 'skeleton esp',
         Default = false,
@@ -3994,6 +4787,14 @@ local function add_esp_module(box, prefix, settings, master_text)
         Transparency = 0,
         Callback = function(v)
             settings.skeleton_color[1] = v
+        end,
+    })
+
+    box:AddSlider(prefix .. "_skeleton_transparency", {
+        Text = 'skeleton transparency',
+        Default = 0, Min = 0, Max = 1, Rounding = 2, Compact = true,
+        Callback = function(v)
+            settings.skeleton_color[2] = v
         end,
     })
 
@@ -4037,22 +4838,22 @@ local function add_esp_module(box, prefix, settings, master_text)
     })
 end
 
-add_esp_module(esp_player_box, 'esp_player', ESP.settings.player, 'enable esp')
-add_esp_module(esp_npc_box, 'esp_npc', ESP.settings.npc, 'enable esp')
+add_esp_module(esp_player_box, 'esp_player', cheat.EspLibrary.settings.player, 'enable esp')
+add_esp_module(esp_npc_box, 'esp_npc', cheat.EspLibrary.settings.npc, 'enable esp')
 
 -- corpse esp
 esp_corpse_box:AddToggle('esp_corpse_enabled', {
     Text = 'enable esp',
     Default = false,
     Callback = function(v)
-        ESP.settings.corpse.enabled = v
+        cheat.EspLibrary.settings.corpse.enabled = v
     end,
 }):AddColorPicker('esp_corpse_color', {
-    Default = ESP.settings.corpse.color,
+    Default = cheat.EspLibrary.settings.corpse.color,
     Title = 'color',
     Transparency = 0,
     Callback = function(v)
-        ESP.settings.corpse.color = v
+        cheat.EspLibrary.settings.corpse.color = v
     end,
 })
 
@@ -4060,7 +4861,7 @@ esp_corpse_box:AddToggle('esp_corpse_name', {
     Text = 'show name',
     Default = true,
     Callback = function(v)
-        ESP.settings.corpse.name = v
+        cheat.EspLibrary.settings.corpse.name = v
     end,
 })
 
@@ -4068,7 +4869,7 @@ esp_corpse_box:AddToggle('esp_corpse_distance', {
     Text = 'show distance',
     Default = false,
     Callback = function(v)
-        ESP.settings.corpse.distance = v
+        cheat.EspLibrary.settings.corpse.distance = v
     end,
 })
 
@@ -4076,14 +4877,14 @@ esp_corpse_box:AddToggle('esp_corpse_outline', {
     Text = 'outline',
     Default = false,
     Callback = function(v)
-        ESP.settings.corpse.outline = v
+        cheat.EspLibrary.settings.corpse.outline = v
     end,
 }):AddColorPicker('esp_corpse_outline_color', {
     Default = Color3.new(),
     Title = 'outline color',
     Transparency = 0,
     Callback = function(v)
-        ESP.settings.corpse.outline_color = v
+        cheat.EspLibrary.settings.corpse.outline_color = v
     end,
 })
 
@@ -4339,7 +5140,7 @@ local function preview_frame_camera()
     if not (model and esp_preview.camera) then return end
     local bounds_cf, size = model:GetBoundingBox()
     local center = bounds_cf.Position
-    local distance = math.max(size.Z, 4) * 1.6 + 4
+    local distance = math.max(size.Y, math.max(size.X, size.Z)) * 1.15 + 2
     esp_preview.camera.CFrame = CFrame.lookAt(
         center + Vector3.new(0, 0, distance),
         center
@@ -4381,6 +5182,18 @@ esp_preview_box:AddButton('npc preview', function()
     preview_frame_camera()
 end)
 
+-- The preview loads a model once a source is available (the local player
+-- usually spawns after the menu is built) and keeps the camera framed.
+task.spawn(function()
+    while cheat.alive do
+        task.wait(1)
+        if esp_preview.model or not esp_preview.world then continue end
+        if preview_find_source(esp_preview.mode) then
+            pcall(function() preview_set_model(esp_preview.mode) end)
+        end
+    end
+end)
+
 -- Keeps the preview overlay in sync with the live ESP settings.
 cheat.utility.new_renderstepped(function()
     local model = esp_preview.model
@@ -4389,11 +5202,11 @@ cheat.utility.new_renderstepped(function()
 
     if not (model and camera and overlay and overlay.name) then return end
 
-    local settings = esp_preview.mode == "npc" and ESP.settings.npc or ESP.settings.player
+    local settings = esp_preview.mode == "npc" and cheat.EspLibrary.settings.npc or cheat.EspLibrary.settings.player
 
     local parts = {}
     for _, descendant in ipairs(model:GetDescendants()) do
-        if descendant:IsA("BasePart") and esp_is_body_part(descendant.Name) then
+        if descendant:IsA("BasePart") and cheat.EspLibrary.is_body_part(descendant.Name) then
             parts[#parts + 1] = descendant
         end
     end
@@ -4877,62 +5690,6 @@ visuals_misc_box:AddSlider('misc_hitmarkers_size', {
     end,
 })
 
-visuals_misc_box:AddToggle('misc_hitlogs', {
-    Text = 'hit logs',
-    Default = false,
-    Callback = function(v)
-        misc.hitlogs = v
-    end,
-}):AddColorPicker('misc_hitlogs_valid_color', {
-    Default = misc.hitlogs_valid_color,
-    Title = 'hp color',
-    Transparency = 0,
-    Callback = function(v)
-        misc.hitlogs_valid_color = v
-    end,
-}):AddColorPicker('misc_hitlogs_invalid_color', {
-    Default = misc.hitlogs_invalid_color,
-    Title = 'invalid color',
-    Transparency = 0,
-    Callback = function(v)
-        misc.hitlogs_invalid_color = v
-    end,
-})
-
-visuals_misc_box:AddDropdown('misc_hitlogs_font', {
-    Text = 'hit logs font',
-    Values = { 'UI', 'System', 'Plex', 'Monospace' },
-    Default = 2,
-    Multi = false,
-    Callback = function(v)
-        local fonts = { UI = 0, System = 1, Plex = 2, Monospace = 3 }
-        misc.hitlogs_font = fonts[v] or 2
-    end,
-})
-
-visuals_misc_box:AddSlider('misc_hitlogs_size', {
-    Text = 'hit logs size',
-    Default = 14, Min = 10, Max = 30, Rounding = 0, Compact = true,
-    Callback = function(v)
-        misc.hitlogs_size = v
-    end,
-})
-
-visuals_misc_box:AddSlider('misc_hitlogs_x', {
-    Text = 'hit logs x',
-    Default = 0, Min = -1500, Max = 1500, Rounding = 0, Compact = true,
-    Callback = function(v)
-        misc.hitlogs_x = v
-    end,
-})
-
-visuals_misc_box:AddSlider('misc_hitlogs_y', {
-    Text = 'hit logs y',
-    Default = 0, Min = -800, Max = 800, Rounding = 0, Compact = true,
-    Callback = function(v)
-        misc.hitlogs_y = v
-    end,
-})
 
 
 ----------------------------------------------------------------------
@@ -6373,8 +7130,8 @@ if melee_module and melee_module.StartSwing and not melee_module._reach_hooked t
 end
 
 -- 7) Auto fill mags: compatible ammo is moved into magazines that are not
---    full. Ported from pin.reta V2 so the magazine / ammo matching matches
---    the game exactly (template attributes + explicit caliber map).
+--    full. The inventory slots are only ObjectValues, the real data (amount,
+--    loaded rounds, template) lives on the item template they point at.
 do
     local itemsList = ReplicatedStorage:FindFirstChild("ItemsList")
 
@@ -6443,6 +7200,32 @@ do
         MK23ExtMag = { ["45AP"] = true, ["45Tracer"] = true },
     }
 
+    -- Reads the real item data behind an inventory slot.
+    local function item_data(slot)
+        local props = slot:FindFirstChild("ItemProperties")
+        local value = (props and props:IsA("ObjectValue")) and props.Value or nil
+        local template = value or slot
+        local template_props = getItemTemplate(template.Name)
+        local loaded = template:GetAttribute("LoadedAmmo")
+        if not loaded and props then
+            local folder = props:FindFirstChild("LoadedAmmo")
+            if folder then loaded = #folder:GetChildren() end
+        end
+        return {
+            name = template.Name,
+            template = template,
+            props = template_props,
+            slot = slot:GetAttribute("Slot"),
+            amount = template:GetAttribute("Amount"),
+            loaded = loaded,
+            max = template:GetAttribute("MaxLoadedAmmo")
+                or template:GetAttribute("Capacity")
+                or template:GetAttribute("MaxAmmo"),
+            slot_type = template:GetAttribute("SlotType") or (template_props and template_props:GetAttribute("SlotType")),
+            item_type = template:GetAttribute("ItemType") or (template_props and template_props:GetAttribute("ItemType")),
+        }
+    end
+
     task.spawn(function()
         while cheat.alive do
             task.wait(0.5)
@@ -6457,88 +7240,63 @@ do
                 for _, container in ipairs(local_game_data.Inventory:GetChildren()) do
                     local inventory = _FindFirstChild(container, "Inventory")
                     if not inventory then continue end
-                    for _, item in ipairs(inventory:GetChildren()) do
-                        local loadedAmmo = item:GetAttribute("LoadedAmmo")
-                        local propObj = item:FindFirstChild("ItemProperties")
-                        local propVal = (propObj and propObj:IsA("ObjectValue")) and propObj.Value
-                        local templateProp = getItemTemplate(item.Name) or (propVal and getItemTemplate(propVal.Name))
 
-                        local slotType = item:GetAttribute("SlotType") or (templateProp and templateProp:GetAttribute("SlotType"))
-                        local itemType = item:GetAttribute("ItemType") or (templateProp and templateProp:GetAttribute("ItemType"))
+                    -- collect the magazines and the loose ammo first
+                    local magazines, ammo = {}, {}
+                    for _, slot in ipairs(inventory:GetChildren()) do
+                        local data = item_data(slot)
 
-                        local isMag = (loadedAmmo ~= nil)
-                            or (slotType == "Magazine")
-                            or (itemType == "Magazine")
-                            or item.Name:find("Mag")
-                            or item.Name:find("Drum")
-                            or item.Name:find("AmmoBox")
-                        if not isMag then continue end
+                        local is_mag = (data.loaded ~= nil)
+                            or (data.slot_type == "Magazine")
+                            or (data.item_type == "Magazine")
+                            or data.name:find("Mag")
+                            or data.name:find("Drum")
+                            or data.name:find("AmmoBox")
 
-                        loadedAmmo = loadedAmmo or 0
-                        local maxAmmo = item:GetAttribute("MaxLoadedAmmo")
-                            or (templateProp and templateProp:GetAttribute("MaxLoadedAmmo"))
-                            or item:GetAttribute("MaxAmmo")
-                            or item:GetAttribute("Capacity")
-                            or 30
-                        if loadedAmmo >= maxAmmo then continue end
+                        if is_mag then
+                            data.loaded = data.loaded or 0
+                            data.max = data.max or 30
+                            if data.loaded < data.max and data.slot then
+                                magazines[#magazines + 1] = data
+                            end
+                        elseif (data.amount or 0) > 0 and data.slot then
+                            ammo[#ammo + 1] = data
+                        end
+                    end
 
-                        -- exact compatible ammo types for this magazine
-                        local compatibleAmmo = (templateProp and templateProp:FindFirstChild("CompatibleAmmo"))
-                            or (propVal and propVal:FindFirstChild("CompatibleAmmo"))
-                        local magCaliber = (templateProp and templateProp:GetAttribute("AmmoType"))
-                            or (propVal and propVal:GetAttribute("AmmoType"))
-                            or item:GetAttribute("AmmoType")
-                        local explicitMap = explicit_mag_ammo_map[item.Name]
-                        local foundAmmo = nil
+                    for _, mag in ipairs(magazines) do
+                        local compatible = (mag.props and mag.props:FindFirstChild("CompatibleAmmo"))
+                            or (mag.template:FindFirstChild("CompatibleAmmo"))
+                        local caliber = mag.template:GetAttribute("AmmoType")
+                            or (mag.props and mag.props:GetAttribute("AmmoType"))
+                        local explicit = explicit_mag_ammo_map[mag.name]
 
-                        for _, c2 in ipairs(local_game_data.Inventory:GetChildren()) do
-                            local inv2 = _FindFirstChild(c2, "Inventory")
-                            if not inv2 then continue end
-                            for _, ammoItem in ipairs(inv2:GetChildren()) do
-                                local ammoAmount = ammoItem:GetAttribute("Amount")
-                                if not (ammoAmount and ammoAmount > 0) then continue end
-                                local ammoTemplate = getItemTemplate(ammoItem.Name)
-                                local ammoSlotType = ammoItem:GetAttribute("SlotType") or (ammoTemplate and ammoTemplate:GetAttribute("SlotType"))
-                                local ammoItemType = ammoItem:GetAttribute("ItemType") or (ammoTemplate and ammoTemplate:GetAttribute("ItemType"))
+                        for _, round in ipairs(ammo) do
+                            local consumable = round.slot_type == "Consumable" or round.item_type == "Consumable"
+                            local medical = round.name:find("AI%d") or round.name:find("AA%d")
+                                or round.name:find("Serum") or round.name:find("Bandage")
+                            if consumable or medical then continue end
 
-                                -- filter out medical / consumable items explicitly
-                                local consumable = ammoSlotType == "Consumable" or ammoItemType == "Consumable"
-                                local medical = ammoItem.Name:find("AI%d") or ammoItem.Name:find("AA%d")
-                                    or ammoItem.Name:find("Serum") or ammoItem.Name:find("Bandage")
-                                if consumable or medical then continue end
-
-                                local isCompat = false
-                                if explicitMap and explicitMap[ammoItem.Name] then
-                                    isCompat = true
-                                elseif compatibleAmmo then
-                                    isCompat = (compatibleAmmo:GetAttribute(ammoItem.Name) ~= nil)
-                                end
-                                if not isCompat and magCaliber and magCaliber ~= "" then
-                                    isCompat = (ammoSlotType == magCaliber) or ammoItem.Name:find(magCaliber)
-                                end
-                                if not isCompat then
-                                    local cleanMag = item.Name:gsub("Mag.*", ""):gsub("Drum.*", ""):gsub("AmmoBox.*", "")
-                                        :gsub("20Rnd", ""):gsub("30Rnd", ""):gsub("100Rnd", "")
-                                    if cleanMag ~= "" and cleanMag ~= item.Name then
-                                        isCompat = ammoItem.Name:find(cleanMag)
-                                    end
-                                end
-
-                                if isCompat then
-                                    foundAmmo = ammoItem
-                                    break
+                            local is_compat = false
+                            if explicit and explicit[round.name] then
+                                is_compat = true
+                            elseif compatible then
+                                is_compat = (compatible:GetAttribute(round.name) ~= nil)
+                            end
+                            if not is_compat and caliber and caliber ~= "" then
+                                is_compat = (round.slot_type == caliber) or (round.name:find(caliber) ~= nil)
+                            end
+                            if not is_compat then
+                                local clean = mag.name:gsub("Mag.*", ""):gsub("Drum.*", ""):gsub("AmmoBox.*", "")
+                                    :gsub("20Rnd", ""):gsub("30Rnd", ""):gsub("100Rnd", "")
+                                if clean ~= "" and clean ~= mag.name then
+                                    is_compat = (round.name:find(clean) ~= nil)
                                 end
                             end
-                            if foundAmmo then break end
-                        end
 
-                        if foundAmmo then
-                            local ammoSlot = foundAmmo:GetAttribute("Slot")
-                            local magSlot = item:GetAttribute("Slot")
-                            local ammoParent = foundAmmo.Parent
-                            local magParent = item.Parent
-                            if ammoSlot and magSlot and ammoParent and magParent then
-                                inventorymove_remote:FireServer(ammoSlot, magSlot, ammoParent, magParent, nil)
+                            if is_compat then
+                                inventorymove_remote:FireServer(round.slot, mag.slot, inventory, inventory, nil)
+                                break
                             end
                         end
                     end
@@ -6547,6 +7305,7 @@ do
         end
     end)
 end
+
 
 ----------------------------------------------------------------------
 -- NAMECALL HOOKS
@@ -6889,7 +7648,14 @@ cheat.utility.new_heartbeat(LPH_NO_VIRTUALIZE(function(delta)
     local ka_fire = ka_ready
     if (silent_aim.triggerbot or ka_fire) and ((silent_aim.target_part and triggerable) or ka_fire) then
         local now = tick()
-        local interval = ka_fire and ka.pulse_interval or (silent_aim.triggerbot_delay or 0.05)
+        local interval
+        if ka_fire then
+            -- with the melee cooldown removed the aura can spam the swings
+            local no_melee_cd = knifemods.no_melee_cooldown == true
+            interval = no_melee_cd and 0.05 or ka.pulse_interval
+        else
+            interval = silent_aim.triggerbot_delay or 0.05
+        end
         if not silent_aim._trigger_held then
             silent_aim._trigger_held = true
             local mouse_position = UserInputService:GetMouseLocation()
@@ -7202,7 +7968,7 @@ cheat.utility.new_renderstepped(LPH_NO_VIRTUALIZE(function()
     -- ─── TARGET LINE ─────────────────────────────────────────────────────
     local show_line = silent_aim.target_line and silent_aim.target_part ~= nil
     if show_line then
-        local head_pos, on_screen = Camera:WorldToViewportPoint(silent_aim.target_part.Position)
+        local head_pos, on_screen = world_to_viewport(silent_aim.target_part.Position)
         if on_screen then
             target_line.From = mouse_pos
             target_line.To = _Vector2new(head_pos.X, head_pos.Y)
