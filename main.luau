@@ -380,6 +380,11 @@ local TOGGLE_COLORS = {
     gunmods_enabled = RED,
     gunmods_instantreload = YELLOW,
     killaura_enabled = YELLOW,
+    esp_player_enabled = RED,
+    esp_npc_enabled = RED,
+    esp_corpse_enabled = RED,
+    inventory_checker_enabled = RED,
+    item_finder_enabled = RED,
 }
 
 local UI_KEYPICKERS = {}     -- every key picker that was created
@@ -886,6 +891,2215 @@ cheat.killaura = {
 }
 
 ----------------------------------------------------------------------
+-- ESP
+----------------------------------------------------------------------
+-- Player, NPC and corpse overlays. Player and NPC share the same renderer
+-- but keep separate settings, so the player ESP only ever draws players and
+-- the NPC ESP only ever draws NPCs.
+
+local function esp_default_settings()
+    return {
+        enabled = false,
+        box = false,
+        box_mode = "3D Bounding",        -- "3D Bounding" | "Static Rectangle"
+        box_fill = false,
+        realname = false,
+        displayname = false,
+        health = false,
+        health_modes = { "Bar" },
+        health_num_gradient = false,
+        dist = false,
+        weapon = false,
+        skeleton = false,
+        box_outline = false,
+        realname_outline = false,
+        displayname_outline = false,
+        dist_outline = false,
+        weapon_outline = false,
+        box_color = { Color3.new(1, 1, 1), 1 },
+        box_fill_color = { Color3.new(1, 0, 0), 0.5 },
+        realname_color = { Color3.new(1, 1, 1), 1 },
+        displayname_color = { Color3.new(1, 1, 1), 1 },
+        health_color = { Color3.new(1, 1, 1), 1 },
+        dist_color = { Color3.new(1, 1, 1), 1 },
+        weapon_color = { Color3.new(1, 1, 1), 1 },
+        skeleton_color = { Color3.new(1, 1, 1), 1 },
+        box_outline_color = { Color3.new(), 1 },
+        realname_outline_color = Color3.new(),
+        displayname_outline_color = Color3.new(),
+        dist_outline_color = Color3.new(),
+        weapon_outline_color = Color3.new(),
+        health_color_top = Color3.new(0, 1, 0),
+        health_color_bottom = Color3.new(1, 0, 0),
+        health_thickness = 2,
+        health_glow_size = 5,
+        chams = false,
+        chams_visible_only = false,
+        chams_fill_color = { Color3.new(1, 1, 1), 0 },
+        chams_hl_fill_color = { Color3.new(1, 1, 1), 0.5 },
+        chamsoutline_color = { Color3.new(1, 1, 1), 0 },
+        chams_overlay = true,
+        chams_glow_factor = 2.0,
+    }
+end
+
+local ESP = {
+    __loaded = false,
+    main_settings = {
+        textSize = 13,
+        textFont = Drawing.Fonts.Plex,
+        maxdistance = 2000,
+        infiniterange = false,
+    },
+    settings = {
+        player = esp_default_settings(),
+        npc = esp_default_settings(),
+        corpse = {
+            enabled = false,
+            name = true,
+            distance = false,
+            color = Color3.fromRGB(0, 255, 0),
+            outline = false,
+            outline_color = Color3.new(),
+        },
+    },
+    targets = {},
+    corpses = {},
+}
+cheat.EspLibrary = ESP
+
+-- Skeleton joints: child -> parent
+local ESP_SKELETON = {
+    ["LeftFoot"] = "LeftLowerLeg",
+    ["LeftLowerLeg"] = "LeftUpperLeg",
+    ["LeftUpperLeg"] = "LowerTorso",
+    ["RightFoot"] = "RightLowerLeg",
+    ["RightLowerLeg"] = "RightUpperLeg",
+    ["RightUpperLeg"] = "LowerTorso",
+    ["LeftHand"] = "LeftLowerArm",
+    ["LeftLowerArm"] = "LeftUpperArm",
+    ["LeftUpperArm"] = "UpperTorso",
+    ["RightHand"] = "RightLowerArm",
+    ["RightLowerArm"] = "RightUpperArm",
+    ["RightUpperArm"] = "UpperTorso",
+    ["LowerTorso"] = "UpperTorso",
+    ["UpperTorso"] = "Head",
+}
+
+local ESP_HELI_NAMES = {
+    MI24V = true,
+    BTR80 = true,
+}
+
+local function esp_is_body_part(name)
+    return name == "Head"
+        or name:find("Torso")
+        or name:find("Leg")
+        or name:find("Arm")
+        or name:find("Mi24")
+        or name:find("Prop_")
+        or name:find("Hull")
+        or name:find("BTR")
+        or name:find("Pilot") ~= nil
+end
+
+local esp_chams_container = Instance.new("Folder")
+esp_chams_container.Name = "CenthackESPChams"
+pcall(function()
+    local coregui = game:GetService("CoreGui")
+    esp_chams_container.Parent = (coregui:FindFirstChild("RobloxGui")) or coregui
+end)
+
+-- World space bounding box of every body part of a model.
+local function esp_bounding_box(parts)
+    local minx, miny, minz = math.huge, math.huge, math.huge
+    local maxx, maxy, maxz = -math.huge, -math.huge, -math.huge
+    for i = 1, #parts do
+        local part = parts[i]
+        local p, s = part.Position, part.Size
+        local hx, hy, hz = s.X * 0.5, s.Y * 0.5, s.Z * 0.5
+        if p.X - hx < minx then minx = p.X - hx end
+        if p.Y - hy < miny then miny = p.Y - hy end
+        if p.Z - hz < minz then minz = p.Z - hz end
+        if p.X + hx > maxx then maxx = p.X + hx end
+        if p.Y + hy > maxy then maxy = p.Y + hy end
+        if p.Z + hz > maxz then maxz = p.Z + hz end
+    end
+    return (minx + maxx) * 0.5, (miny + maxy) * 0.5, (minz + maxz) * 0.5,
+        (maxx - minx) * 0.5, (maxy - miny) * 0.5, (maxz - minz) * 0.5
+end
+
+-- Projects the eight corners of a box into screen space.
+local function esp_box_corners(cx, cy, cz, hx, hy, hz)
+    local x0, x1 = cx - hx, cx + hx
+    local y0, y1 = cy - hy, cy + hy
+    local z0, z1 = cz - hz, cz + hz
+    local vp = Camera.ViewportSize
+    local minx, miny = vp.X, vp.Y
+    local maxx, maxy = 0, 0
+    local xs = { x0, x0, x0, x0, x1, x1, x1, x1 }
+    local ys = { y0, y1, y1, y0, y0, y1, y1, y0 }
+    local zs = { z0, z0, z1, z1, z0, z0, z1, z1 }
+    for i = 1, 8 do
+        local s = Camera:WorldToViewportPoint(Vector3.new(xs[i], ys[i], zs[i]))
+        if s.X < minx then minx = s.X end
+        if s.Y < miny then miny = s.Y end
+        if s.X > maxx then maxx = s.X end
+        if s.Y > maxy then maxy = s.Y end
+    end
+    return math.floor(minx), math.floor(miny), math.floor(maxx), math.floor(maxy)
+end
+
+-- Fixed size rectangle around the root part (keeps a constant on-screen size)
+local ESP_STATIC_W = 2.0
+local ESP_STATIC_TOP = 2.8
+local ESP_STATIC_BOTTOM = 2.7
+
+local function esp_static_box(root_position)
+    local right = Camera.CFrame.RightVector
+    local top = root_position + Vector3.new(0, ESP_STATIC_TOP, 0)
+    local bottom = root_position - Vector3.new(0, ESP_STATIC_BOTTOM, 0)
+    local tl = Camera:WorldToViewportPoint(top - right * ESP_STATIC_W)
+    local tr = Camera:WorldToViewportPoint(top + right * ESP_STATIC_W)
+    local bl = Camera:WorldToViewportPoint(bottom - right * ESP_STATIC_W)
+    local br = Camera:WorldToViewportPoint(bottom + right * ESP_STATIC_W)
+    return math.floor(math.min(tl.X, bl.X)), math.floor(math.min(tl.Y, tr.Y)),
+        math.floor(math.max(tr.X, br.X)), math.floor(math.max(bl.Y, br.Y))
+end
+
+local function esp_new_drawing(kind, args)
+    args = args or {}
+    args.Visible = false
+    return cheat.utility.new_drawing(kind, args)
+end
+
+local function esp_create_target(model, isnpc)
+    if ESP.targets[model] then return ESP.targets[model] end
+
+    local rec = {
+        model = model,
+        isnpc = isnpc,
+        body_parts = nil,
+        last_character = nil,
+        skel_parts = nil,
+        chams = {},
+        chams_highlight = nil,
+        obj = {
+            box = esp_new_drawing("Square", { Filled = false, Thickness = 1, ZIndex = 3 }),
+            box_outline = esp_new_drawing("Square", { Filled = false, Thickness = 3, ZIndex = 2 }),
+            box_fill = esp_new_drawing("Square", { Filled = true, ZIndex = 1 }),
+            realname = esp_new_drawing("Text", { Center = true, Text = model.Name, Outline = true, ZIndex = 5 }),
+            displayname = esp_new_drawing("Text", { Center = true, Outline = true, ZIndex = 5 }),
+            dist = esp_new_drawing("Text", { Center = true, Outline = true, ZIndex = 5 }),
+            weapon = esp_new_drawing("Text", { Center = true, Outline = true, ZIndex = 5 }),
+            healthtext = esp_new_drawing("Text", { Center = false, Outline = true, ZIndex = 5 }),
+            health_bar = esp_new_drawing("Line", { Thickness = 2, ZIndex = 4 }),
+            health_cap_top = esp_new_drawing("Circle", { Filled = true, ZIndex = 4 }),
+            health_cap_bottom = esp_new_drawing("Circle", { Filled = true, ZIndex = 4 }),
+        },
+    }
+
+    for i = 1, 6 do
+        rec.obj["health_glow_" .. i] = esp_new_drawing("Line", { ZIndex = 3 })
+    end
+
+    for name in pairs(ESP_SKELETON) do
+        rec.obj["skeleton_" .. name] = esp_new_drawing("Line", { ZIndex = 4 })
+    end
+
+    ESP.targets[model] = rec
+    return rec
+end
+
+local function esp_hide_target(rec)
+    for _, v in pairs(rec.obj) do
+        if v.Visible then v.Visible = false end
+    end
+    if rec.chams_highlight then
+        rec.chams_highlight.Enabled = false
+    end
+    for _, data in pairs(rec.chams) do
+        if data.cham then data.cham.Adornee = nil end
+    end
+end
+
+local function esp_remove_target(model)
+    local rec = ESP.targets[model]
+    if not rec then return end
+    for _, v in pairs(rec.obj) do
+        pcall(function() v:Remove() end)
+    end
+    for _, data in pairs(rec.chams) do
+        if data.cham then pcall(function() data.cham:Destroy() end) end
+    end
+    if rec.chams_highlight then pcall(function() rec.chams_highlight:Destroy() end) end
+    ESP.targets[model] = nil
+end
+
+local function esp_create_corpse(model)
+    if ESP.corpses[model] then return ESP.corpses[model] end
+    local rec = {
+        model = model,
+        obj = {
+            name = esp_new_drawing("Text", { Center = true, Outline = true, ZIndex = 5 }),
+        },
+    }
+    ESP.corpses[model] = rec
+    return rec
+end
+
+local function esp_remove_corpse(model)
+    local rec = ESP.corpses[model]
+    if not rec then return end
+    for _, v in pairs(rec.obj) do
+        pcall(function() v:Remove() end)
+    end
+    ESP.corpses[model] = nil
+end
+
+function ESP.get_gun(player)
+    local rp = ReplicatedStorage:FindFirstChild("Players")
+    local plr = rp and rp:FindFirstChild(player.Name)
+    local gv = plr and plr:FindFirstChild("Status") and plr.Status:FindFirstChild("GameplayVariables")
+    local equipped = gv and gv:FindFirstChild("EquippedTool") and gv.EquippedTool.Value
+    if equipped then return tostring(equipped) end
+    return "None"
+end
+
+-- Refreshes the list of tracked players, NPCs and corpses.
+function ESP.refresh_targets()
+    -- drop targets that are no longer in the game
+    for model, rec in pairs(ESP.targets) do
+        if rec.isnpc then
+            if not model.Parent then
+                esp_remove_target(model)
+            end
+        elseif not Players:FindFirstChild(model.Name) then
+            esp_remove_target(model)
+        end
+    end
+
+    for model in pairs(ESP.corpses) do
+        if not model.Parent then
+            esp_remove_corpse(model)
+        end
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            esp_create_target(player, false)
+        end
+    end
+
+    local zones = workspace:FindFirstChild("AiZones")
+    if zones then
+        for _, zone in ipairs(zones:GetChildren()) do
+            for _, npc in ipairs(zone:GetChildren()) do
+                if npc:IsA("Model") then
+                    esp_create_target(npc, true)
+                end
+            end
+        end
+    end
+
+    local dropped = workspace:FindFirstChild("DroppedItems")
+    if dropped then
+        for _, item in ipairs(dropped:GetChildren()) do
+            if item:IsA("Model") and item:FindFirstChildOfClass("Humanoid") then
+                esp_create_corpse(item)
+            end
+        end
+    end
+end
+
+local function esp_apply_chams(rec, character, settings)
+    if rec.chams_character ~= character then
+        for _, data in pairs(rec.chams) do
+            if data.cham then pcall(function() data.cham:Destroy() end) end
+        end
+        table.clear(rec.chams)
+        rec.chams_character = character
+
+        local list = ESP_HELI_NAMES[character.Name] and character:GetDescendants() or character:GetChildren()
+        for _, part in ipairs(list) do
+            if part:IsA("BasePart") and esp_is_body_part(part.Name) then
+                local cham = Instance.new("BoxHandleAdornment")
+                cham.Name = "CenthackESPCham"
+                cham.Size = part.Size * 0.95
+                cham.Shading = Enum.AdornShading.XRayShaded
+                cham.ZIndex = -1
+                cham.AlwaysOnTop = false
+                cham.Parent = esp_chams_container
+                rec.chams[part] = { cham = cham }
+            end
+        end
+
+    end
+
+    if not settings.chams then
+        for _, data in pairs(rec.chams) do
+            if data.cham then data.cham.Adornee = nil end
+        end
+        if rec.chams_highlight then rec.chams_highlight.Enabled = false end
+        return
+    end
+
+    local glow = settings.chams_glow_factor or 2
+    local base = settings.chams_fill_color[1] or Color3.new(1, 1, 1)
+    local glow_color = Color3.new(base.R * glow, base.G * glow, base.B * glow)
+    local transparency = settings.chams_fill_color[2] or 0
+
+    for part, data in pairs(rec.chams) do
+        local cham = data.cham
+        if cham and part.Parent then
+            cham.Adornee = part
+            cham.Color3 = glow_color
+            cham.Transparency = transparency
+            cham.Size = part.Size * 0.95
+        end
+    end
+
+    if not rec.chams_highlight then
+        local hl = Instance.new("Highlight")
+        hl.Name = "CenthackESPHighlight"
+        hl.Parent = esp_chams_container
+        hl.DepthMode = settings.chams_visible_only
+            and Enum.HighlightDepthMode.Occluded
+            or Enum.HighlightDepthMode.AlwaysOnTop
+        rec.chams_highlight = hl
+    end
+
+    if rec.chams_highlight then
+        rec.chams_highlight.Adornee = character
+        rec.chams_highlight.FillColor = settings.chams_hl_fill_color[1]
+        rec.chams_highlight.OutlineColor = settings.chamsoutline_color[1]
+        rec.chams_highlight.FillTransparency = settings.chams_hl_fill_color[2]
+        rec.chams_highlight.OutlineTransparency = settings.chamsoutline_color[2]
+        rec.chams_highlight.Enabled = true
+    end
+end
+
+local function esp_render_target(rec)
+    local settings = rec.isnpc and ESP.settings.npc or ESP.settings.player
+    local obj = rec.obj
+    local character = rec.isnpc and rec.model or rec.model.Character
+
+    if not settings.enabled or not character or not character.Parent then
+        esp_hide_target(rec)
+        return
+    end
+
+    local is_heli = ESP_HELI_NAMES[character.Name] == true
+    local head = character:FindFirstChild("Head")
+    if is_heli then
+        head = character:FindFirstChild("CollisionPilot", true) or character:FindFirstChild("Mi24_Prop_M", true)
+    end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+    if not (head and humanoid) then
+        esp_hide_target(rec)
+        return
+    end
+
+    local screen, onscreen = Camera:WorldToViewportPoint(head.Position)
+    if not onscreen or screen.Z <= 0 then
+        esp_hide_target(rec)
+        return
+    end
+
+    local distance = (Camera.CFrame.Position - head.Position).Magnitude
+    if not ESP.main_settings.infiniterange and distance > (ESP.main_settings.maxdistance or 2000) then
+        esp_hide_target(rec)
+        return
+    end
+
+    if humanoid.Health <= 0 then
+        esp_hide_target(rec)
+        return
+    end
+
+    if rec.last_character ~= character then
+        rec.last_character = character
+        rec.body_parts = nil
+        rec.skel_parts = nil
+    end
+
+    if not rec.body_parts then
+        rec.body_parts = {}
+        local list = is_heli and character:GetDescendants() or character:GetChildren()
+        for _, part in ipairs(list) do
+            if part:IsA("BasePart") and esp_is_body_part(part.Name) then
+                rec.body_parts[#rec.body_parts + 1] = part
+            end
+        end
+    end
+
+    if #rec.body_parts == 0 then
+        esp_hide_target(rec)
+        return
+    end
+
+    local minx, miny, maxx, maxy
+    if settings.box_mode == "Static Rectangle" then
+        local hrp = character:FindFirstChild("HumanoidRootPart") or head
+        minx, miny, maxx, maxy = esp_static_box(hrp.Position)
+    else
+        local cx, cy, cz, hx, hy, hz = esp_bounding_box(rec.body_parts)
+        minx, miny, maxx, maxy = esp_box_corners(cx, cy, cz, hx, hy, hz)
+    end
+
+    local width = maxx - minx
+    local height = maxy - miny
+    if width < 1 or height < 1 then
+        esp_hide_target(rec)
+        return
+    end
+
+    -- box
+    obj.box.Position = Vector2.new(minx, miny)
+    obj.box.Size = Vector2.new(width, height)
+    obj.box.Color = settings.box_color[1]
+    obj.box.Transparency = settings.box_color[2]
+    obj.box.Visible = settings.box
+
+    obj.box_outline.Position = Vector2.new(minx - 1, miny - 1)
+    obj.box_outline.Size = Vector2.new(width + 2, height + 2)
+    obj.box_outline.Color = settings.box_outline_color[1]
+    obj.box_outline.Transparency = settings.box_outline_color[2]
+    obj.box_outline.Visible = settings.box and settings.box_outline
+
+    obj.box_fill.Position = Vector2.new(minx, miny)
+    obj.box_fill.Size = Vector2.new(width, height)
+    obj.box_fill.Color = settings.box_fill_color[1]
+    obj.box_fill.Transparency = settings.box_fill_color[2]
+    obj.box_fill.Visible = settings.box and settings.box_fill
+
+    -- name / display name
+    local text_size = ESP.main_settings.textSize or 13
+    local text_font = ESP.main_settings.textFont or Drawing.Fonts.Plex
+
+    local name_text = rec.isnpc and rec.model.Name or rec.model.Name
+    obj.realname.Text = name_text
+    obj.realname.Size = text_size
+    obj.realname.Font = text_font
+    obj.realname.Color = settings.realname_color[1]
+    obj.realname.Transparency = settings.realname_color[2]
+    obj.realname.Outline = settings.realname_outline
+    obj.realname.OutlineColor = settings.realname_outline_color
+    obj.realname.Position = Vector2.new(minx + (width / 2), miny - (text_size + 2))
+    obj.realname.Visible = settings.realname
+
+    local display_text = ""
+    if not rec.isnpc then
+        local pd = rec.model.DisplayName
+        if pd and pd ~= rec.model.Name then display_text = pd end
+    end
+    obj.displayname.Text = display_text
+    obj.displayname.Size = text_size
+    obj.displayname.Font = text_font
+    obj.displayname.Color = settings.displayname_color[1]
+    obj.displayname.Transparency = settings.displayname_color[2]
+    obj.displayname.Outline = settings.displayname_outline
+    obj.displayname.OutlineColor = settings.displayname_outline_color
+    obj.displayname.Position = Vector2.new(minx + (width / 2), miny - (text_size + 2) - (settings.realname and text_size or 0))
+    obj.displayname.Visible = settings.displayname and display_text ~= ""
+
+    -- distance
+    local dist_text = math.floor(distance / 3) .. " meters"
+    obj.dist.Text = dist_text
+    obj.dist.Size = text_size
+    obj.dist.Font = text_font
+    obj.dist.Color = settings.dist_color[1]
+    obj.dist.Transparency = settings.dist_color[2]
+    obj.dist.Outline = settings.dist_outline
+    obj.dist.OutlineColor = settings.dist_outline_color
+    obj.dist.Position = Vector2.new(minx + (width / 2), maxy + 2)
+    obj.dist.Visible = settings.dist
+
+    -- weapon
+    local weapon_text = ""
+    if not rec.isnpc then
+        if not rec._gun_time or (os.clock() - rec._gun_time) > 0.5 then
+            rec._gun_time = os.clock()
+            rec._gun_text = ESP.get_gun(rec.model)
+        end
+        weapon_text = rec._gun_text or "None"
+    end
+    obj.weapon.Text = weapon_text
+    obj.weapon.Size = text_size
+    obj.weapon.Font = text_font
+    obj.weapon.Color = settings.weapon_color[1]
+    obj.weapon.Transparency = settings.weapon_color[2]
+    obj.weapon.Outline = settings.weapon_outline
+    obj.weapon.OutlineColor = settings.weapon_outline_color
+    obj.weapon.Position = Vector2.new(minx + (width / 2), maxy + 2 + (settings.dist and text_size or 0))
+    obj.weapon.Visible = settings.weapon and weapon_text ~= ""
+
+    -- health
+    local show_bar = false
+    local show_number = false
+    local modes = settings.health_modes
+    if type(modes) == "table" then
+        for _, mode in pairs(modes) do
+            if mode == "Bar" then show_bar = true end
+            if mode == "Number" then show_number = true end
+        end
+    elseif modes == "Bar" then
+        show_bar = true
+    elseif modes == "Number" then
+        show_number = true
+    end
+
+    local health = humanoid.Health
+    local max_health = humanoid.MaxHealth or 100
+    local percent = math.clamp(health / max_health, 0, 1)
+    local bar_x = minx - 6
+    local bar_start = Vector2.new(bar_x, maxy)
+    local bar_end = Vector2.new(bar_x, miny)
+
+    if show_bar and percent > 0 then
+        local bar_color = settings.health_color_top:Lerp(settings.health_color_bottom, 1 - percent)
+        local bar_to = bar_start:Lerp(bar_end, percent)
+
+        obj.health_bar.From = bar_start
+        obj.health_bar.To = bar_to
+        obj.health_bar.Color = bar_color
+        obj.health_bar.Thickness = settings.health_thickness
+        obj.health_bar.Visible = true
+
+        for i = 1, 6 do
+            local glow = obj["health_glow_" .. i]
+            local thickness = (i / 6) * (settings.health_glow_size or 5)
+            glow.From = bar_start
+            glow.To = bar_to
+            glow.Color = bar_color
+            glow.Thickness = thickness
+            glow.Transparency = 0.3 - (i * 0.04)
+            glow.Visible = true
+        end
+
+        obj.health_cap_top.Position = bar_to
+        obj.health_cap_top.Color = bar_color
+        obj.health_cap_top.Radius = settings.health_thickness / 2
+        obj.health_cap_top.Visible = true
+
+        obj.health_cap_bottom.Position = bar_start
+        obj.health_cap_bottom.Color = settings.health_color_bottom
+        obj.health_cap_bottom.Radius = settings.health_thickness / 2
+        obj.health_cap_bottom.Visible = true
+    else
+        obj.health_bar.Visible = false
+        obj.health_cap_top.Visible = false
+        obj.health_cap_bottom.Visible = false
+        for i = 1, 6 do
+            obj["health_glow_" .. i].Visible = false
+        end
+    end
+
+    if show_number and health > 0 then
+        obj.healthtext.Text = tostring(math.floor(health))
+        obj.healthtext.Size = text_size
+        obj.healthtext.Font = text_font
+        obj.healthtext.Color = settings.health_num_gradient
+            and settings.health_color_top:Lerp(settings.health_color_bottom, 1 - percent)
+            or settings.health_color[1]
+        obj.healthtext.Transparency = settings.health_color[2]
+        obj.healthtext.Position = Vector2.new(minx - 22, miny)
+        obj.healthtext.Visible = true
+    else
+        obj.healthtext.Visible = false
+    end
+
+    -- skeleton
+    if settings.skeleton then
+        if not rec.skel_parts then
+            rec.skel_parts = {}
+            for name, parent_name in pairs(ESP_SKELETON) do
+                local parent_instance = character:FindFirstChild(parent_name)
+                local part = character:FindFirstChild(name)
+                if parent_instance and part then
+                    rec.skel_parts[#rec.skel_parts + 1] = { part = part, parent = parent_instance, line = obj["skeleton_" .. name] }
+                end
+            end
+        end
+        for _, entry in ipairs(rec.skel_parts) do
+            local line = entry.line
+            if entry.part.Parent and entry.parent.Parent then
+                local p1 = Camera:WorldToViewportPoint(entry.part.Position)
+                local p2 = Camera:WorldToViewportPoint(entry.parent.Position)
+                line.From = Vector2.new(p1.X, p1.Y)
+                line.To = Vector2.new(p2.X, p2.Y)
+                line.Color = settings.skeleton_color[1]
+                line.Transparency = settings.skeleton_color[2]
+                line.Visible = true
+            else
+                line.Visible = false
+            end
+        end
+    else
+        for name in pairs(ESP_SKELETON) do
+            local line = obj["skeleton_" .. name]
+            if line then line.Visible = false end
+        end
+    end
+
+    esp_apply_chams(rec, character, settings)
+end
+
+local function esp_render_corpse(rec)
+    local settings = ESP.settings.corpse
+    local obj = rec.obj
+    local model = rec.model
+
+    if not settings.enabled or not model.Parent then
+        obj.name.Visible = false
+        return
+    end
+
+    local mainpart = model:FindFirstChild("UpperTorso") or model.PrimaryPart
+    or model:FindFirstChildOfClass("BasePart")
+    if not mainpart then
+        obj.name.Visible = false
+        return
+    end
+
+    local screen, onscreen = Camera:WorldToViewportPoint(mainpart.Position)
+    if not onscreen or screen.Z <= 0 then
+        obj.name.Visible = false
+        return
+    end
+
+    local str = ""
+    if settings.name then str = model.Name .. "'s corpse" end
+    if settings.distance then
+        local d = math.floor((Camera.CFrame.Position - mainpart.Position).Magnitude / 3)
+        if str ~= "" then str = str .. " [" .. d .. "m]" else str = "[" .. d .. "m]" end
+    end
+
+    if str == "" then
+        obj.name.Visible = false
+        return
+    end
+
+    obj.name.Text = str
+    obj.name.Size = ESP.main_settings.textSize or 13
+    obj.name.Font = ESP.main_settings.textFont or Drawing.Fonts.Plex
+    obj.name.Color = settings.color
+    obj.name.Outline = settings.outline
+    obj.name.OutlineColor = settings.outline_color
+    obj.name.Position = Vector2.new(screen.X, screen.Y)
+    obj.name.Visible = true
+end
+
+-- One render loop drives every overlay.
+cheat.utility.new_renderstepped(function()
+    for _, rec in pairs(ESP.targets) do
+        esp_render_target(rec)
+    end
+    for _, rec in pairs(ESP.corpses) do
+        esp_render_corpse(rec)
+    end
+end)
+
+-- Keep the target list fresh (players join, NPCs spawn, corpses drop).
+task.spawn(function()
+    while cheat.alive do
+        task.wait(2)
+        pcall(function() ESP.refresh_targets() end)
+    end
+end)
+
+cheat.utility.track_connection(Players.PlayerAdded:Connect(function()
+    task.defer(function() pcall(function() ESP.refresh_targets() end) end)
+end))
+
+cheat.utility.track_connection(Players.PlayerRemoving:Connect(function(player)
+    esp_remove_target(player)
+end))
+
+do
+    local dropped = workspace:FindFirstChild("DroppedItems")
+    if dropped then
+        cheat.utility.track_connection(dropped.ChildAdded:Connect(function(child)
+            if child:IsA("Model") and child:FindFirstChildOfClass("Humanoid") then
+                esp_create_corpse(child)
+            end
+        end))
+        cheat.utility.track_connection(dropped.ChildRemoved:Connect(function(child)
+            esp_remove_corpse(child)
+        end))
+    end
+end
+
+
+----------------------------------------------------------------------
+-- INVENTORY CHECKER
+----------------------------------------------------------------------
+-- Shows the inventory of the closest (or currently targeted) player, plus a
+-- separate item finder that lists who carries the selected items.
+
+local inventory = {}
+
+local INVENTORY = {
+    enabled = false,
+    full = false,
+    value = false,
+    corpse = false,
+    side = "Right",
+    x = 24,
+    y = 300,
+    stretch = true,
+    delay = 0.1,
+}
+
+local ITEM_FINDER = {
+    enabled = false,
+    items = {},
+    x = 300,
+    y = 50,
+    stretch = false,
+}
+
+cheat.inventory_checker = INVENTORY
+cheat.item_finder = ITEM_FINDER
+
+local function format_money(amount)
+    local formatted = tostring(amount)
+    local replacements
+    while true do
+        formatted, replacements = string.gsub(formatted, "^(-?%d+)(%d%d%d)", "%1,%2")
+        if replacements == 0 then break end
+    end
+    return formatted
+end
+
+local inventory_text = cheat.utility.new_drawing("Text", {
+    Visible = false,
+    Font = Drawing.Fonts.Plex,
+    Size = 13,
+    Color = Color3.new(1, 1, 1),
+    Outline = true,
+    ZIndex = 100,
+})
+
+local last_target = nil
+local last_update = 0
+
+function inventory:refresh()
+    last_target = nil
+    inventory_text.Visible = false
+end
+
+local function process_item(item_folder, hidden, out)
+    local name = string.lower(item_folder.Name)
+    if name:find("dagr") or name:find("keychain") or name:find("map") or name:find("lighter")
+        or name:find("radio") or name:find("compass") or name:find("pathfinder")
+        or name:find("dv2") then
+        return
+    end
+
+    local items_list = ReplicatedStorage:FindFirstChild("ItemsList")
+    local item_ref = items_list and items_list:FindFirstChild(item_folder.Name)
+    local props = item_ref and item_ref:FindFirstChild("ItemProperties")
+    if not props then return end
+
+    local item_type = props:GetAttribute("ItemType")
+    if item_type == "Melee" or item_type == "MeleeWeapon" then return end
+
+    local price = props:GetAttribute("Price") or 1
+    if price >= 10 then
+        if item_type == "Extra" then
+            price = price * 0.4
+        elseif item_type == "Ammo" then
+            price = price * (item_folder:GetAttribute("Amount") or 1) * 0.7
+        elseif item_type == "Clothing" then
+            price = price * 0.35
+        elseif item_type == "Medical" then
+            price = price * 0.75
+        elseif item_type == "Barter" then
+            price = price * 0.4
+        end
+    end
+    out.value = out.value + price
+
+    if hidden then return end
+
+    local amount = item_folder:GetAttribute("Amount")
+    local suffix = (amount and amount > 1) and (" x" .. tostring(amount)) or ""
+    local slot = item_folder:GetAttribute("Slot")
+
+    if slot and string.find(tostring(slot), "Clothing") then
+        out.clothing[#out.clothing + 1] = "  " .. item_folder.Name .. suffix
+    elseif slot and item_folder:FindFirstChild("Attachments") then
+        out.weapons[#out.weapons + 1] = "  " .. item_folder.Name .. suffix
+        for _, attachment in ipairs(item_folder.Attachments:GetChildren()) do
+            local attachment_slot = attachment:GetAttribute("Slot") or "Attachment"
+            out.weapons[#out.weapons + 1] = "    " .. attachment_slot .. ": " .. attachment.Name
+        end
+    else
+        out.loot[#out.loot + 1] = "  " .. item_folder.Name .. suffix
+    end
+    out.count = out.count + 1
+end
+
+function inventory:update(target)
+    if not target then
+        inventory_text.Visible = false
+        last_target = nil
+        return
+    end
+
+    local now = os.clock()
+    if last_target == target and (now - last_update) < (INVENTORY.delay or 0.1) then
+        return
+    end
+    last_update = now
+    last_target = target
+
+    local inv = target:FindFirstChild("Inventory")
+    if not inv then
+        local rp = ReplicatedStorage:FindFirstChild("Players")
+        local rpp = rp and rp:FindFirstChild(target.Name)
+        inv = rpp and rpp:FindFirstChild("Inventory")
+    end
+
+    local items_list = ReplicatedStorage:FindFirstChild("ItemsList")
+    if not (inv and items_list) then
+        inventory_text.Visible = false
+        return
+    end
+
+    local out = { count = 0, value = 0, weapons = {}, clothing = {}, loot = {} }
+
+    for _, slot in ipairs(inv:GetChildren()) do
+        process_item(slot, false, out)
+        local slot_attr = slot:GetAttribute("Slot")
+        if slot_attr and slot_attr:find("Clothing") and slot:FindFirstChild("Inventory") then
+            if INVENTORY.full then
+                for _, sub in ipairs(slot.Inventory:GetChildren()) do
+                    process_item(sub, false, out)
+                end
+            end
+        elseif slot:FindFirstChild("Attachments") then
+            for _, attachment in ipairs(slot.Attachments:GetChildren()) do
+                process_item(attachment, true, out)
+            end
+        end
+    end
+
+    local lines = {
+        "inventory / " .. string.lower(target.Name),
+        string.format("%d ITEMS%s", out.count, INVENTORY.value and ("  |  VALUE " .. format_money(math.floor(out.value))) or ""),
+        "[weapons]",
+    }
+
+    if #out.weapons > 0 then
+        for _, line in ipairs(out.weapons) do lines[#lines + 1] = line end
+    else
+        lines[#lines + 1] = "  none"
+    end
+
+    lines[#lines + 1] = "[clothes]"
+    if #out.clothing > 0 then
+        for _, line in ipairs(out.clothing) do lines[#lines + 1] = line end
+    else
+        lines[#lines + 1] = "  none"
+    end
+
+    lines[#lines + 1] = "[loot]"
+    if #out.loot > 0 then
+        local shown = math.min(#out.loot, 30)
+        for i = 1, shown do lines[#lines + 1] = out.loot[i] end
+        if #out.loot > shown then
+            lines[#lines + 1] = string.format("  ... +%d more", #out.loot - shown)
+        end
+    else
+        lines[#lines + 1] = "  none"
+    end
+
+    inventory_text.Text = table.concat(lines, "\n")
+    inventory_text.Size = 13
+    inventory_text.Color = Color3.new(1, 1, 1)
+
+    local viewport = Camera.ViewportSize
+    local bounds = inventory_text.TextBounds
+    local left_edge
+    if INVENTORY.side == "Left" then
+        left_edge = INVENTORY.x
+    else
+        left_edge = math.max(0, viewport.X - INVENTORY.x - bounds.X)
+    end
+
+    local top_y
+    if INVENTORY.stretch then
+        top_y = INVENTORY.y - bounds.Y / 2
+    else
+        top_y = INVENTORY.y
+    end
+
+    inventory_text.Position = Vector2.new(left_edge, top_y)
+    inventory_text.Visible = true
+end
+
+-- ITEM FINDER ---------------------------------------------------------------
+
+local finder_bg = cheat.utility.new_drawing("Square", {
+    Visible = false, Filled = true, Color = Color3.fromRGB(20, 20, 20), Transparency = 0.95, ZIndex = 100,
+})
+local finder_border = cheat.utility.new_drawing("Square", {
+    Visible = false, Filled = false, Color = Color3.fromRGB(10, 10, 10), Thickness = 1, ZIndex = 101,
+})
+local finder_title = cheat.utility.new_drawing("Text", {
+    Visible = false, Text = "item finder", Size = 12, Color = Color3.new(1, 1, 1), Outline = true, ZIndex = 103,
+})
+local finder_rows = {}
+for i = 1, 24 do
+    finder_rows[i] = cheat.utility.new_drawing("Text", {
+        Visible = false, Text = "", Size = 12, Color = Color3.new(1, 1, 1), Outline = true, ZIndex = 103,
+    })
+end
+
+local function hide_finder()
+    finder_bg.Visible = false
+    finder_border.Visible = false
+    finder_title.Visible = false
+    for _, row in ipairs(finder_rows) do row.Visible = false end
+end
+
+local function collect_finder_items()
+    local result = {}
+    local items_list = ReplicatedStorage:FindFirstChild("ItemsList")
+    if items_list then
+        for _, item in ipairs(items_list:GetChildren()) do
+            local props = item:FindFirstChild("ItemProperties")
+            local is_melee = props and props:GetAttribute("ItemType") == "Melee"
+            if item.Name ~= "Lighter" and not is_melee then
+                result[#result + 1] = item.Name
+            end
+        end
+    end
+    table.sort(result, function(a, b) return string.lower(a) < string.lower(b) end)
+    return result
+end
+
+local finder_items = collect_finder_items()
+if #finder_items == 0 then
+    finder_items = {
+        "BlueCard", "OrangeCard", "RedCard", "GreenCard", "YellowCard", "BlackCard",
+        "F1", "RGD5", "RGO", "M84", "Snowball", "M4A1", "AKM", "ASVAL", "VSS", "SVD",
+        "Mosin", "MP5", "Altyn", "Maska", "Vulkan", "Defender2", "Slick", "IFAK", "AI2",
+        "Bitcoin", "GP_Coin", "GoldBar", "Intelligence", "GraphicsCard",
+    }
+end
+
+local finder_last_scan = 0
+local finder_cached = {}
+
+-- ItemsList is sometimes populated after the menu is built, so the item list
+-- is refreshed once it shows up.
+task.spawn(function()
+    local items_list = ReplicatedStorage:WaitForChild("ItemsList", 15)
+    if not items_list then return end
+    task.wait(0.5)
+    local refreshed = collect_finder_items()
+    if #refreshed > 0 and Options and Options.item_finder_items then
+        pcall(function() Options.item_finder_items:SetValues(refreshed) end)
+    end
+end)
+
+local function scan_for_items()
+    local found_by_item = {}
+    local match_count = 0
+    local rp = ReplicatedStorage:FindFirstChild("Players")
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local rpp = rp and rp:FindFirstChild(player.Name)
+            local player_inventory = rpp and rpp:FindFirstChild("Inventory")
+            if player_inventory then
+                for _, item in ipairs(player_inventory:GetChildren()) do
+                    if ITEM_FINDER.items[item.Name] then
+                        found_by_item[item.Name] = found_by_item[item.Name] or {}
+                        found_by_item[item.Name][player.Name] = true
+                        match_count = match_count + 1
+                    end
+                end
+            end
+        end
+    end
+
+    local rows = {}
+    local names = {}
+    for item_name in pairs(found_by_item) do names[#names + 1] = item_name end
+    table.sort(names, function(a, b) return string.lower(a) < string.lower(b) end)
+
+    for _, item_name in ipairs(names) do
+        rows[#rows + 1] = "[" .. string.lower(item_name) .. "]"
+        local player_names = {}
+        for player_name in pairs(found_by_item[item_name]) do player_names[#player_names + 1] = player_name end
+        table.sort(player_names, function(a, b) return string.lower(a) < string.lower(b) end)
+        for _, player_name in ipairs(player_names) do
+            rows[#rows + 1] = "  " .. string.lower(player_name)
+        end
+    end
+
+    finder_cached = { rows = rows, count = match_count }
+end
+
+-- Target picking for the inventory checker.
+local function pick_inventory_target()
+    if silent_aim and silent_aim.target_part and silent_aim.target_part.Parent then
+        return silent_aim.target_part.Parent
+    end
+
+    local best, best_dist = nil, math.huge
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+            local screen = Camera:WorldToViewportPoint(player.Character.Head.Position)
+            if screen.Z > 0 then
+                local mag = (Vector2.new(screen.X, screen.Y) - Camera.ViewportSize / 2).Magnitude
+                if mag < best_dist then
+                    best_dist = mag
+                    best = player.Character
+                end
+            end
+        end
+    end
+
+    if INVENTORY.corpse then
+        local dropped = workspace:FindFirstChild("DroppedItems")
+        if dropped then
+            for _, item in ipairs(dropped:GetChildren()) do
+                if item:FindFirstChild("Humanoid") and item:FindFirstChild("Head") then
+                    local screen = Camera:WorldToViewportPoint(item.Head.Position)
+                    if screen.Z > 0 then
+                        local mag = (Vector2.new(screen.X, screen.Y) - Camera.ViewportSize / 2).Magnitude
+                        if mag < best_dist then
+                            best_dist = mag
+                            best = item
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return best
+end
+
+cheat.utility.new_renderstepped(function()
+    if INVENTORY.enabled then
+        inventory:update(pick_inventory_target())
+    else
+        inventory:refresh()
+    end
+
+    if not ITEM_FINDER.enabled then
+        hide_finder()
+        return
+    end
+
+    local now = os.clock()
+    if now - finder_last_scan > 2 then
+        finder_last_scan = now
+        pcall(scan_for_items)
+    end
+
+    local rows = finder_cached.rows or {}
+    local visible = math.min(#rows, #finder_rows)
+    if #rows == 0 then
+        visible = 1
+        rows = { "no matching items found" }
+    end
+
+    local row_height = 14
+    local panel_height = 26 + (visible * row_height) + 8
+    local panel_width = 220
+
+    local viewport = Camera.ViewportSize
+    local px, py
+    if ITEM_FINDER.stretch then
+        px = ITEM_FINDER.x - (panel_width / 2)
+        py = ITEM_FINDER.y - (panel_height / 2)
+    else
+        px = ITEM_FINDER.x
+        py = ITEM_FINDER.y
+    end
+    px = math.clamp(px, 0, math.max(0, viewport.X - panel_width))
+    py = math.clamp(py, 0, math.max(0, viewport.Y - panel_height))
+
+    finder_bg.Position = Vector2.new(px, py)
+    finder_bg.Size = Vector2.new(panel_width, panel_height)
+    finder_bg.Visible = true
+
+    finder_border.Position = Vector2.new(px, py)
+    finder_border.Size = Vector2.new(panel_width, panel_height)
+    finder_border.Visible = true
+
+    finder_title.Text = string.format("[item finder] / %d", finder_cached.count or 0)
+    finder_title.Position = Vector2.new(px + 8, py + 6)
+    finder_title.Visible = true
+
+    for i = 1, #finder_rows do
+        local row = finder_rows[i]
+        if i <= visible then
+            row.Text = string.lower(rows[i])
+            row.Position = Vector2.new(px + 8, py + 24 + ((i - 1) * row_height))
+            row.Visible = true
+        else
+            row.Visible = false
+        end
+    end
+end)
+
+
+----------------------------------------------------------------------
+-- LIGHTNING (WORLD)
+----------------------------------------------------------------------
+-- Lighting / atmosphere overrides: ambient colours, time of day, fog,
+-- shadows, clouds, foliage and a custom skybox.
+
+local world = {
+    ambient_enabled = false,
+    ambient_color1 = Color3.new(1, 1, 1),
+    ambient_color2 = Color3.new(1, 1, 1),
+    time_enabled = false,
+    time = 12,
+    no_fog = false,
+    no_shadows = false,
+    no_clouds = false,
+    no_grass = false,
+    no_leafs = false,
+    potato = false,
+    skybox_enabled = false,
+    skybox = "Purple Nebula",
+    skybox_brightness = 100,
+    skybox_rotation_x = 0,
+    skybox_rotation_z = 0,
+}
+cheat.world = world
+
+local SKYBOX_PRESETS = {
+    ["Purple Nebula"] = {
+        SkyboxBk = "rbxassetid://159454299", SkyboxDn = "rbxassetid://159454296",
+        SkyboxFt = "rbxassetid://159454293", SkyboxLf = "rbxassetid://159454286",
+        SkyboxRt = "rbxassetid://159454300", SkyboxUp = "rbxassetid://159454288",
+    },
+    ["Vaporwave"] = {
+        SkyboxBk = "rbxassetid://600832720", SkyboxDn = "rbxassetid://600833821",
+        SkyboxFt = "rbxassetid://600835177", SkyboxLf = "rbxassetid://600833341",
+        SkyboxRt = "rbxassetid://600834603", SkyboxUp = "rbxassetid://600835727",
+    },
+    ["Deep Space"] = {
+        SkyboxBk = "rbxassetid://265805434", SkyboxDn = "rbxassetid://265805423",
+        SkyboxFt = "rbxassetid://265805445", SkyboxLf = "rbxassetid://265805466",
+        SkyboxRt = "rbxassetid://265805481", SkyboxUp = "rbxassetid://265805502",
+    },
+    ["Night Sky"] = {
+        SkyboxBk = "rbxassetid://12064107", SkyboxDn = "rbxassetid://12064152",
+        SkyboxFt = "rbxassetid://12064121", SkyboxLf = "rbxassetid://12064131",
+        SkyboxRt = "rbxassetid://12064115", SkyboxUp = "rbxassetid://12064143",
+    },
+    ["Sunset"] = {
+        SkyboxBk = "rbxassetid://924373456", SkyboxDn = "rbxassetid://924373468",
+        SkyboxFt = "rbxassetid://924373479", SkyboxLf = "rbxassetid://924373497",
+        SkyboxRt = "rbxassetid://924373508", SkyboxUp = "rbxassetid://924373523",
+    },
+    ["Blood Moon"] = {
+        SkyboxBk = "rbxassetid://401664839", SkyboxDn = "rbxassetid://401664861",
+        SkyboxFt = "rbxassetid://401664883", SkyboxLf = "rbxassetid://401664901",
+        SkyboxRt = "rbxassetid://401664916", SkyboxUp = "rbxassetid://401664936",
+    },
+    ["Purple Planet"] = {
+        SkyboxBk = "rbxassetid://16262356578", SkyboxDn = "rbxassetid://16262358026",
+        SkyboxFt = "rbxassetid://16262360469", SkyboxLf = "rbxassetid://16262362003",
+        SkyboxRt = "rbxassetid://16262363873", SkyboxUp = "rbxassetid://16262366016",
+    },
+}
+
+local world_atmosphere_props = setmetatable({}, { __mode = "k" })
+local world_custom_sky = nil
+local world_original_latitude = nil
+local world_disabled_clouds = {}
+local world_leaf_systems = {}
+
+local function world_apply_atmosphere(atmosphere, enabled)
+    if world_atmosphere_props[atmosphere] == nil then
+        world_atmosphere_props[atmosphere] = {
+            Density = atmosphere.Density,
+            Haze = atmosphere.Haze,
+            Glare = atmosphere.Glare,
+            Offset = atmosphere.Offset,
+        }
+    end
+
+    if enabled then
+        atmosphere.Density = 0
+        atmosphere.Haze = 0
+        atmosphere.Glare = 0
+        atmosphere.Offset = 0
+    else
+        local original = world_atmosphere_props[atmosphere]
+        if original then
+            atmosphere.Density = original.Density or 0.3
+            atmosphere.Haze = original.Haze or 0
+            atmosphere.Glare = original.Glare or 0
+            atmosphere.Offset = original.Offset or 0
+        end
+    end
+end
+
+local function world_apply_fog()
+    if world.no_fog then
+        Lighting.FogEnd = 100000000
+        Lighting.FogStart = 100000000
+    end
+end
+
+local function world_apply_clouds()
+    local should_hide = world.skybox_enabled or world.no_clouds
+    if should_hide then
+        local terrain_clouds = workspace.Terrain:FindFirstChildOfClass("Clouds")
+        if terrain_clouds and terrain_clouds.Enabled then
+            world_disabled_clouds[terrain_clouds] = true
+            terrain_clouds.Enabled = false
+        end
+        for _, child in ipairs(Lighting:GetChildren()) do
+            if child:IsA("Clouds") and child.Enabled then
+                world_disabled_clouds[child] = true
+                child.Enabled = false
+            end
+        end
+    else
+        for cloud in pairs(world_disabled_clouds) do
+            if cloud and cloud.Parent then cloud.Enabled = true end
+        end
+        table.clear(world_disabled_clouds)
+    end
+end
+
+local function world_apply_skybox()
+    if world.skybox_enabled then
+        if not world_custom_sky or world_custom_sky.Parent ~= Lighting then
+            world_custom_sky = Instance.new("Sky")
+            world_custom_sky.Name = "CenthackSky"
+            world_custom_sky.Parent = Lighting
+        end
+
+        for _, child in ipairs(Lighting:GetChildren()) do
+            if child:IsA("Sky") and child ~= world_custom_sky then
+                child:Destroy()
+            end
+        end
+
+        local data = SKYBOX_PRESETS[world.skybox]
+        if data then
+            local z_step = math.floor(((world.skybox_rotation_z % 360) + 45) / 90) % 4
+            local bk, ft, lf, rt
+            if z_step == 0 then
+                bk, ft, lf, rt = data.SkyboxBk, data.SkyboxFt, data.SkyboxLf, data.SkyboxRt
+            elseif z_step == 1 then
+                bk, ft, lf, rt = data.SkyboxLf, data.SkyboxRt, data.SkyboxFt, data.SkyboxBk
+            elseif z_step == 2 then
+                bk, ft, lf, rt = data.SkyboxFt, data.SkyboxBk, data.SkyboxRt, data.SkyboxLf
+            else
+                bk, ft, lf, rt = data.SkyboxRt, data.SkyboxLf, data.SkyboxBk, data.SkyboxFt
+            end
+
+            if world_custom_sky.SkyboxBk ~= bk then world_custom_sky.SkyboxBk = bk end
+            if world_custom_sky.SkyboxFt ~= ft then world_custom_sky.SkyboxFt = ft end
+            if world_custom_sky.SkyboxLf ~= lf then world_custom_sky.SkyboxLf = lf end
+            if world_custom_sky.SkyboxRt ~= rt then world_custom_sky.SkyboxRt = rt end
+            if world_custom_sky.SkyboxDn ~= data.SkyboxDn then world_custom_sky.SkyboxDn = data.SkyboxDn end
+            if world_custom_sky.SkyboxUp ~= data.SkyboxUp then world_custom_sky.SkyboxUp = data.SkyboxUp end
+        end
+
+        if world_original_latitude == nil then
+            world_original_latitude = Lighting.GeographicLatitude
+        end
+        Lighting.GeographicLatitude = math.clamp(world.skybox_rotation_x, -90, 90)
+
+        for _, effect in ipairs(Lighting:GetChildren()) do
+            if effect:IsA("Atmosphere") then
+                local brightness = world.skybox_brightness or 100
+                if brightness < 100 then
+                    local factor = (100 - brightness) / 100
+                    effect.Density = 0.001
+                    effect.Haze = 0
+                    effect.Glare = 0
+                    effect.Offset = 0
+                    local c = math.floor(255 * (1 - factor))
+                    effect.Color = Color3.fromRGB(c, c, c)
+                elseif brightness > 100 then
+                    local factor = (brightness - 100) / 100
+                    effect.Density = 0.001
+                    effect.Haze = math.clamp(factor * 1.5, 0, 10)
+                    effect.Glare = math.clamp(factor * 3.0, 0, 10)
+                    effect.Offset = math.clamp(factor * 0.2, 0, 1)
+                    effect.Color = Color3.fromRGB(255, 255, 255)
+                else
+                    effect.Density = 0
+                    effect.Haze = 0
+                    effect.Glare = 0
+                    effect.Offset = 0
+                end
+            end
+        end
+        world_apply_clouds()
+    else
+        if world_custom_sky then
+            world_custom_sky:Destroy()
+            world_custom_sky = nil
+        end
+        if world_original_latitude ~= nil then
+            Lighting.GeographicLatitude = world_original_latitude
+            world_original_latitude = nil
+        end
+        world_apply_clouds()
+    end
+end
+
+local function world_apply_leafs()
+    local zones = workspace:FindFirstChild("SpawnerZones")
+    local foliage = zones and zones:FindFirstChild("Foliage")
+    if not foliage then return end
+    for _, descendant in ipairs(foliage:GetDescendants()) do
+        if descendant:FindFirstChildOfClass("SurfaceAppearance") then
+            descendant.Transparency = world.no_leafs and 1 or 0
+        end
+    end
+end
+
+local function world_apply_potato()
+    if not world.potato then return end
+    if Lighting.GlobalShadows ~= false then Lighting.GlobalShadows = false end
+    if Lighting.FogEnd ~= 100000000 then Lighting.FogEnd = 100000000 end
+    if Lighting.FogStart ~= 100000000 then Lighting.FogStart = 100000000 end
+    for _, child in ipairs(Lighting:GetChildren()) do
+        if child:IsA("Atmosphere") then
+            child.Density = 0
+            child.Haze = 0
+            child.Glare = 0
+            child.Offset = 0
+        end
+    end
+    for _, part in ipairs(workspace:GetDescendants()) do
+        if part:IsA("ParticleEmitter") then
+            part.Enabled = false
+        elseif part:IsA("Part")
+            and (part.Material == Enum.Material.TransulentGlow or part.Material == Enum.Material.Glow) then
+            part.Material = Enum.Material.Default
+        end
+    end
+    for _, leaf in pairs(world_leaf_systems) do
+        if leaf and leaf.Parent and leaf.Enabled ~= false then
+            leaf.Enabled = false
+        end
+    end
+end
+
+-- Keeps the lighting overrides applied (the game resets some of them).
+cheat.utility.new_heartbeat(function()
+    pcall(function()
+        if world.time_enabled and Lighting.ClockTime ~= world.time then
+            Lighting.ClockTime = world.time
+        end
+        if world.ambient_enabled then
+            if Lighting.Ambient ~= world.ambient_color1 then Lighting.Ambient = world.ambient_color1 end
+            if Lighting.OutdoorAmbient ~= world.ambient_color2 then Lighting.OutdoorAmbient = world.ambient_color2 end
+        end
+        if world.no_shadows and Lighting.GlobalShadows ~= false then
+            Lighting.GlobalShadows = false
+        end
+        if world.no_fog then world_apply_fog() end
+        world_apply_potato()
+    end)
+end)
+
+workspace.ChildAdded:Connect(function(child)
+    if child:IsA("LeafSystem") then
+        world_leaf_systems[child] = true
+    end
+end)
+
+Lighting.ChildAdded:Connect(function(child)
+    if world.no_fog and child:IsA("Atmosphere") then
+        world_apply_atmosphere(child, true)
+    end
+    if world.skybox_enabled and child:IsA("Atmosphere") then
+        world_apply_skybox()
+    elseif (world.skybox_enabled or world.no_clouds) and child:IsA("Clouds") then
+        world_apply_clouds()
+    end
+end)
+
+function world.apply_skybox()
+    world_apply_skybox()
+end
+
+function world.apply_fog()
+    if world.no_fog then
+        world_apply_fog()
+        for _, child in ipairs(Lighting:GetChildren()) do
+            if child:IsA("Atmosphere") then world_apply_atmosphere(child, true) end
+        end
+    else
+        for _, child in ipairs(Lighting:GetChildren()) do
+            if child:IsA("Atmosphere") then world_apply_atmosphere(child, false) end
+        end
+    end
+end
+
+function world.apply_leafs()
+    world_apply_leafs()
+end
+
+function world.apply_clouds()
+    world_apply_clouds()
+end
+
+function world.apply_grass()
+    pcall(function()
+        local terrain = workspace:FindFirstChildOfClass("Terrain")
+        if terrain then
+            sethiddenproperty(terrain, "Decoration", not world.no_grass)
+        end
+    end)
+end
+
+----------------------------------------------------------------------
+-- MISC
+----------------------------------------------------------------------
+-- Viewmodel, melee skin, chams, camera and effect helpers.
+
+local misc = {
+    fov_enabled = false,
+    fov_size = 70,
+    zoom_enabled = false,
+    zoom_size = 10,
+    no_screen_fx = false,
+    remove_muzzle_flash = false,
+    hit_effect = false,
+    hit_effect_color = Color3.new(1, 1, 1),
+    hit_effect_amount = 100,
+    damage_numbers = false,
+    damage_numbers_color = Color3.fromRGB(255, 75, 75),
+    damage_numbers_random = false,
+    damage_numbers_spread = 1,
+    melee_skin = "None",
+    melee_skin_scale = 1.0,
+    viewmodel_x = 0,
+    viewmodel_y = 0,
+    viewmodel_z = 0,
+    arm_chams = false,
+    arm_chams_color = Color3.new(1, 1, 1),
+    arm_chams_material = "SmoothPlastic",
+    gun_chams = false,
+    gun_chams_color = Color3.new(1, 1, 1),
+    gun_chams_material = "SmoothPlastic",
+    force_render = false,
+    clean_inventory_bg = false,
+    hitmarkers = false,
+    hitmarkers_color = Color3.new(1, 1, 1),
+    hitmarkers_outline_color = Color3.new(0, 0, 0),
+    hitmarkers_lifetime = 0.7,
+    hitmarkers_size = 8,
+    hitlogs = false,
+    hitlogs_valid_color = Color3.fromRGB(255, 85, 85),
+    hitlogs_invalid_color = Color3.fromRGB(255, 150, 150),
+    hitlogs_font = 2,
+    hitlogs_size = 14,
+    hitlogs_x = 0,
+    hitlogs_y = 0,
+}
+cheat.misc = misc
+
+-- ---- camera fov / zoom -----------------------------------------------------
+
+local misc_current_fov = nil
+
+cheat.utility.new_renderstepped(function()
+    local uis = UserInputService
+    local rmb_down = uis and uis:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+    local pfolder = ReplicatedStorage:FindFirstChild("Players")
+        and ReplicatedStorage.Players:FindFirstChild(LocalPlayer.Name)
+    local gv = pfolder and pfolder:FindFirstChild("Status") and pfolder.Status:FindFirstChild("GameplayVariables")
+    local aiming = gv and gv:GetAttribute("Aiming")
+    local aiming_value = gv and gv:FindFirstChild("Aiming") and gv.Aiming.Value
+    local scoping = rmb_down or aiming == true or (aiming_value ~= nil and aiming_value ~= false)
+
+    if scoping then
+        misc_current_fov = nil
+        return
+    end
+
+    local target_fov
+    if misc.zoom_enabled then
+        target_fov = misc.zoom_size
+    elseif misc.fov_enabled then
+        target_fov = misc.fov_size
+    end
+    misc_current_fov = target_fov
+
+    if target_fov then
+        if target_fov > 120 then
+            local scale = math.tan(math.rad(120) / 2) / math.tan(math.rad(math.min(target_fov, 179)) / 2)
+            local cf = Camera.CFrame
+            Camera.FieldOfView = 120
+            Camera.CFrame = CFrame.fromMatrix(cf.Position, cf.RightVector * scale, cf.UpVector * scale, -cf.LookVector)
+        else
+            Camera.FieldOfView = target_fov
+        end
+    end
+end)
+
+-- ---- muzzle flash / screen effects -----------------------------------------
+
+local function misc_remove_muzzle_flash(instance)
+    if not misc.remove_muzzle_flash then return end
+    if instance:IsA("ParticleEmitter") or instance:IsA("Light") or instance:IsA("Beam") then
+        local name = instance.Name:lower()
+        local parent_name = instance.Parent and instance.Parent.Name:lower() or ""
+        if name:find("flash") or name:find("muzzle") or parent_name:find("muzzle")
+            or parent_name:find("aimpart") or name:find("smoke") or name:find("spark") then
+            instance.Enabled = false
+            if instance:IsA("ParticleEmitter") then
+                instance:Clear()
+                instance.Transparency = NumberSequence.new(1)
+            end
+        end
+    end
+end
+
+cheat.utility.track_connection(workspace.CurrentCamera.DescendantAdded:Connect(misc_remove_muzzle_flash))
+
+cheat.utility.new_renderstepped(function()
+    if not misc.no_screen_fx then return end
+    local playergui = LocalPlayer:FindFirstChild("PlayerGui")
+    local noinset = playergui and playergui:FindFirstChild("NoInsetGui")
+    local mainframe = noinset and noinset:FindFirstChild("MainFrame")
+    local effects = mainframe and mainframe:FindFirstChild("ScreenEffects")
+    if effects then effects.Visible = false end
+end)
+
+-- ---- hit / kill effect -----------------------------------------------------
+
+function cheat.utility.spawn_hit_effect(position)
+    if not position then return end
+    local part = Instance.new("Part")
+    part.Anchored = true
+    part.CanCollide = false
+    part.Transparency = 1
+    part.Position = position
+    part.Parent = workspace.Terrain
+
+    local emit = Instance.new("ParticleEmitter")
+    emit.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+    emit.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.5), NumberSequenceKeypoint.new(1, 0) })
+    emit.Color = ColorSequence.new(misc.hit_effect_color)
+    emit.LightEmission = 1
+    emit.LightInfluence = 0
+    emit.ZOffset = 1
+    emit.Lifetime = NumberRange.new(1, 2)
+    emit.Rate = 0
+    emit.Speed = NumberRange.new(15, 40)
+    emit.SpreadAngle = Vector2.new(360, 360)
+    emit.Drag = 2
+    emit.Parent = part
+
+    pcall(function() emit:Emit(misc.hit_effect_amount or 100) end)
+    game:GetService("Debris"):AddItem(part, 3)
+end
+
+function cheat.utility.spawn_damage_number(position, damage)
+    if not (position and damage) then return end
+    local rounded = math.round(damage)
+    if rounded <= 0 then return end
+
+    local random = misc.damage_numbers_random
+    local spread = misc.damage_numbers_spread or 1
+    local vx, vy, gravity = 0, -50, 0
+    local init_x, init_y = 0, 0
+    if random then
+        local angle = math.random() * math.pi * 2
+        local speed = math.random(55, 95) * spread
+        vx = math.cos(angle) * speed
+        vy = (math.sin(angle) * speed * 0.6) - (math.random(35, 70) * math.clamp(spread, 0.2, 3))
+        gravity = 140
+        init_x = math.random(-15, 15) * spread
+        init_y = math.random(-8, 8) * spread
+    end
+
+    local text = cheat.utility.new_drawing("Text", {
+        Text = "-" .. tostring(rounded),
+        Size = 16,
+        Font = 2,
+        Center = true,
+        Outline = true,
+        OutlineColor = Color3.new(0, 0, 0),
+        Color = misc.damage_numbers_color,
+        Transparency = 1,
+        Visible = false,
+        ZIndex = 110,
+    })
+
+    local start = os.clock()
+    local lifetime = 1.2
+    local conn
+    conn = cheat.utility.new_renderstepped(function(delta)
+        local elapsed = os.clock() - start
+        if elapsed >= lifetime or not cheat.alive then
+            conn:Disconnect()
+            cheat.utility.remove_drawing(text)
+        else
+            local screen, onscreen = Camera:WorldToViewportPoint(position)
+            if onscreen and screen.Z > 0 then
+                text.Position = Vector2.new(
+                    screen.X + init_x + (vx * elapsed),
+                    screen.Y + init_y + (vy * elapsed) + (0.5 * gravity * elapsed * elapsed)
+                )
+                local alpha = 1
+                if elapsed > lifetime * 0.5 then
+                    alpha = 1 - ((elapsed - lifetime * 0.5) / (lifetime * 0.5))
+                end
+                text.Transparency = math.clamp(alpha, 0, 1)
+                text.Visible = true
+            else
+                text.Visible = false
+            end
+        end
+    end)
+end
+
+-- ---- melee skin swapper (knife changer) ------------------------------------
+
+local misc_original_melee = {}
+
+local function misc_apply_melee_skin(skin_name)
+    local rp = ReplicatedStorage:FindFirstChild("Players")
+    local pfolder = rp and rp:FindFirstChild(LocalPlayer.Name)
+    local inv = pfolder and pfolder:FindFirstChild("Inventory")
+    if not inv then return end
+
+    local items_list = ReplicatedStorage:FindFirstChild("ItemsList")
+    local target_item = nil
+    if skin_name and skin_name ~= "None" and items_list then
+        target_item = items_list:FindFirstChild(skin_name)
+    end
+
+    for _, item in ipairs(inv:GetChildren()) do
+        if item:IsA("ObjectValue") then
+            local current = item.Value
+            if not misc_original_melee[item.Name] then
+                misc_original_melee[item.Name] = current
+            end
+            local original = misc_original_melee[item.Name]
+            local original_name = original and original.Name or ""
+            local prop = original and original:FindFirstChild("ItemProperties")
+            local slot = prop and prop:FindFirstChild("SlotType") and prop.SlotType.Value or ""
+            local lower = string.lower(original_name)
+            local is_melee = (slot == "Melee")
+                or lower:find("knife") or lower:find("cleaver") or lower:find("axe")
+                or lower:find("crowbar") or lower:find("karambit") or lower:find("dv2")
+
+            if is_melee then
+                if target_item then
+                    pcall(function() item.Value = target_item end)
+                elseif original then
+                    pcall(function() item.Value = original end)
+                end
+            end
+        end
+    end
+end
+
+-- ---- viewmodel offset + chams ----------------------------------------------
+
+local misc_vm_highlights = { gun = {}, arms = {} }
+local misc_vm_highlight_container = nil
+
+do
+    local ok, coregui = pcall(game.GetService, game, "CoreGui")
+    misc_vm_highlight_container = Instance.new("Folder")
+    misc_vm_highlight_container.Name = "CenthackVMHighlights"
+    misc_vm_highlight_container.Parent = (ok and coregui:FindFirstChild("RobloxGui"))
+        or (ok and coregui)
+        or LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local function misc_clear_highlights(group)
+    if not group then
+        for _, set in pairs(misc_vm_highlights) do
+            for _, hl in pairs(set) do
+                if hl then pcall(function() hl:Destroy() end) end
+            end
+            table.clear(set)
+        end
+        return
+    end
+    local set = misc_vm_highlights[group]
+    if not set then return end
+    for _, hl in pairs(set) do
+        if hl then pcall(function() hl:Destroy() end) end
+    end
+    table.clear(set)
+end
+
+local function misc_apply_highlight(group, adornee, fill, fill_t, outline, outline_t)
+    if not (adornee and adornee.Parent) then return end
+    local set = misc_vm_highlights[group]
+    local hl = set[adornee]
+    if not hl or not hl.Parent then
+        hl = Instance.new("Highlight")
+        hl.Name = "CenthackVMHighlight"
+        hl.DepthMode = Enum.HighlightDepthMode.Occluded
+        hl.Adornee = adornee
+        hl.Parent = misc_vm_highlight_container
+        set[adornee] = hl
+    end
+    hl.FillColor = fill
+    hl.FillTransparency = fill_t
+    hl.OutlineColor = outline
+    hl.OutlineTransparency = outline_t
+    hl.Enabled = true
+end
+
+local function misc_is_grip(part)
+    local name = part.Name:lower()
+    return name:find("hand") or name:find("arm")
+end
+
+local function misc_apply_chams()
+    local viewmodel = Camera and (Camera:FindFirstChild("ViewModel") or Camera:FindFirstChildOfClass("Model"))
+    if not viewmodel then return end
+    local item = viewmodel:FindFirstChild("Item")
+    if not item then return end
+
+    for _, descendant in ipairs(item:GetDescendants()) do
+        if (descendant:IsA("MeshPart") or descendant:IsA("BasePart"))
+            and descendant.Transparency < 1
+            and descendant.Name ~= "Muzzle" and descendant.Name ~= "SightMark"
+            and descendant.Name ~= "AimPart" and descendant.Name ~= "SmokePart"
+            and descendant.Name ~= "FirePoint" and descendant.Name ~= "Flash"
+            and descendant.Name ~= "Flame"
+        then
+            if misc.gun_chams then
+                local surface = descendant:FindFirstChildOfClass("SurfaceAppearance")
+                if surface then surface:Destroy() end
+                descendant.Material = Enum.Material[misc.gun_chams_material or "SmoothPlastic"]
+                descendant.Color = misc.gun_chams_color
+                descendant.Reflectance = 0
+            end
+        end
+    end
+
+    for _, descendant in ipairs(item:GetDescendants()) do
+        if descendant:IsA("MeshPart") and misc_is_grip(descendant) and misc.arm_chams then
+            local surface = descendant:FindFirstChildOfClass("SurfaceAppearance")
+            if surface then surface:Destroy() end
+            descendant.Material = Enum.Material[misc.arm_chams_material or "SmoothPlastic"]
+            descendant.Color = misc.arm_chams_color
+            descendant.Reflectance = 0
+        end
+    end
+end
+
+local function misc_apply_viewmodel_offset()
+    local viewmodel = Camera and (Camera:FindFirstChild("ViewModel") or Camera:FindFirstChildOfClass("Model"))
+    if not viewmodel then return end
+    local hrp = viewmodel:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local vector = Vector3.new(misc.viewmodel_x or 0, misc.viewmodel_y or 0, misc.viewmodel_z or 0)
+    if vector.Magnitude < 0.001 then return end
+
+    local function apply_joint(name)
+        local joint = hrp:FindFirstChild(name)
+        if joint and joint:IsA("Motor6D") then
+            local original = joint:GetAttribute("OriginalC0")
+            if not original then
+                original = joint.C0
+                joint:SetAttribute("OriginalC0", original)
+            end
+            joint.C0 = original + vector
+        end
+    end
+
+    apply_joint("LeftUpperArm")
+    apply_joint("RightUpperArm")
+    apply_joint("ItemRoot")
+end
+
+cheat.utility.new_heartbeat(function()
+    local has_offset = (misc.viewmodel_x or 0) ~= 0 or (misc.viewmodel_y or 0) ~= 0 or (misc.viewmodel_z or 0) ~= 0
+    if has_offset then
+        misc_apply_viewmodel_offset()
+    end
+    if misc.arm_chams or misc.gun_chams then
+        misc_apply_chams()
+    end
+end)
+
+-- ---- clean inventory background --------------------------------------------
+
+local function misc_clean_inventory()
+    if not misc.clean_inventory_bg then return end
+    local playergui = LocalPlayer:FindFirstChild("PlayerGui")
+    local main_gui = playergui and playergui:FindFirstChild("MainGui")
+    if not main_gui then return end
+    for _, descendant in ipairs(main_gui:GetDescendants()) do
+        if descendant:IsA("GuiObject") then
+            if descendant.Name == "Decor" and descendant:IsA("ImageLabel") then
+                descendant.Visible = false
+            elseif descendant.Name == "CharacterFrame" or descendant.Name == "InventoryFrame"
+                or descendant.Name == "Loot" or descendant.Name == "TradeInfo"
+                or descendant.Name == "Trading" or descendant.Name == "CraftingInfo"
+                or descendant.Name == "InspectionBox" or descendant.Name == "ItemModdingBox" then
+                descendant.BackgroundTransparency = 1
+            end
+        end
+    end
+end
+
+do
+    local playergui = LocalPlayer:WaitForChild("PlayerGui", 5)
+    if playergui then
+        cheat.utility.track_connection(playergui.DescendantAdded:Connect(function(descendant)
+            misc_clean_inventory()
+        end))
+    end
+    cheat.utility.track_connection(Lighting.ChildAdded:Connect(function(child)
+        if misc.clean_inventory_bg and (child:IsA("BlurEffect") or child.Name:lower():find("blur")) then
+            child.Enabled = false
+        end
+    end))
+end
+
+-- ---- force render ----------------------------------------------------------
+
+task.spawn(function()
+    local last_requested = {}
+    while cheat.alive do
+        task.wait(0.5)
+        if misc.force_render then
+            pcall(function()
+                local rp_players = ReplicatedStorage:FindFirstChild("Players")
+                local my_char = LocalPlayer.Character
+                local my_pos = my_char and my_char:FindFirstChild("HumanoidRootPart")
+                    and my_char.HumanoidRootPart.Position
+
+                if rp_players and my_pos then
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= LocalPlayer and (not player.Character or not player.Character:FindFirstChild("HumanoidRootPart")) then
+                            local rp = rp_players:FindFirstChild(player.Name)
+                            local status = rp and rp:FindFirstChild("Status")
+                            local uac = status and status:FindFirstChild("UAC")
+                            local pos = uac and uac:GetAttribute("LastVerifiedPos")
+
+                            if pos and typeof(pos) == "Vector3" then
+                                local dist = (pos - my_pos).Magnitude
+                                if dist <= 12000 then
+                                    local now = tick()
+                                    if not last_requested[player] or (now - last_requested[player] > 1.5) then
+                                        last_requested[player] = now
+                                        task.spawn(function()
+                                            pcall(function() LocalPlayer:RequestStreamAroundAsync(pos, 0.5) end)
+                                        end)
+                                        task.wait(0.2)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+----------------------------------------------------------------------
+-- HITMARKERS + HIT LOGS
+----------------------------------------------------------------------
+-- A hitmarker is a frozen 45 degree crosshair drawn at the exact world spot
+-- a bullet connected, the hit log is a bare text readout of the same shots.
+
+cheat.hitmarkers = { active = {} }
+
+local HITMARKER_ROTATION = math.rad(45)
+local HITMARKER_GAP = 4
+
+local function hitmarker_new_line(z, thickness, color)
+    return cheat.utility.new_drawing("Line", {
+        From = Vector2.new(0, 0),
+        To = Vector2.new(0, 0),
+        Thickness = thickness,
+        Color = color,
+        Transparency = 1,
+        Visible = false,
+        ZIndex = z,
+    })
+end
+
+local function hitmarker_free(entry)
+    local marker = entry and entry.marker
+    if not marker then return end
+    for _, list in ipairs({ marker.ticks, marker.outlines }) do
+        for _, drawing in ipairs(list) do
+            pcall(function() drawing.Visible = false end)
+            cheat.utility.remove_drawing(drawing)
+        end
+    end
+end
+
+function cheat.hitmarkers.clear()
+    for i = #cheat.hitmarkers.active, 1, -1 do
+        hitmarker_free(cheat.hitmarkers.active[i])
+        table.remove(cheat.hitmarkers.active, i)
+    end
+end
+
+function cheat.hitmarkers.spawn(position)
+    if not (misc.hitmarkers and position) then return end
+    if #cheat.hitmarkers.active >= 48 then
+        hitmarker_free(table.remove(cheat.hitmarkers.active, 1))
+    end
+
+    local ticks, outlines = {}, {}
+    for i = 1, 4 do
+        outlines[i] = hitmarker_new_line(104, 3, misc.hitmarkers_outline_color)
+        ticks[i] = hitmarker_new_line(105, 1.5, misc.hitmarkers_color)
+    end
+
+    cheat.hitmarkers.active[#cheat.hitmarkers.active + 1] = {
+        pos = position,
+        spawn_tick = os.clock(),
+        marker = { ticks = ticks, outlines = outlines },
+    }
+end
+
+cheat.utility.new_renderstepped(function()
+    local list = cheat.hitmarkers.active
+    if #list == 0 then return end
+    if not misc.hitmarkers then
+        cheat.hitmarkers.clear()
+        return
+    end
+
+    local now = os.clock()
+    local lifetime = math.max(0.1, misc.hitmarkers_lifetime or 0.7)
+    local length = misc.hitmarkers_size or 8
+    local outer_radius = HITMARKER_GAP + length
+    local inner_radius = math.max(0, HITMARKER_GAP - 1)
+    local outline_outer = outer_radius + 1
+
+    for i = #list, 1, -1 do
+        local entry = list[i]
+        local age = now - entry.spawn_tick
+        if age >= lifetime then
+            hitmarker_free(entry)
+            table.remove(list, i)
+        else
+            local screen, onscreen = Camera:WorldToViewportPoint(entry.pos)
+            if onscreen and screen.Z > 0 then
+                for index = 1, 4 do
+                    local theta = HITMARKER_ROTATION + (index - 1) * (math.pi / 2)
+                    local cos_t, sin_t = math.cos(theta), math.sin(theta)
+                    local outline = entry.marker.outlines[index]
+                    outline.From = Vector2.new(screen.X + cos_t * inner_radius, screen.Y + sin_t * inner_radius)
+                    outline.To = Vector2.new(screen.X + cos_t * outline_outer, screen.Y + sin_t * outline_outer)
+                    outline.Visible = true
+                    local tick = entry.marker.ticks[index]
+                    tick.From = Vector2.new(screen.X + cos_t * HITMARKER_GAP, screen.Y + sin_t * HITMARKER_GAP)
+                    tick.To = Vector2.new(screen.X + cos_t * outer_radius, screen.Y + sin_t * outer_radius)
+                    tick.Visible = true
+                end
+            else
+                for index = 1, 4 do
+                    entry.marker.ticks[index].Visible = false
+                    entry.marker.outlines[index].Visible = false
+                end
+            end
+        end
+    end
+end)
+
+cheat.hitlogs = { pending = {}, active = {} }
+
+function cheat.hitlogs.create(segments, spawn_time)
+    local segs = {}
+    for _, segment in ipairs(segments) do
+        segs[#segs + 1] = {
+            drawing = cheat.utility.new_drawing("Text", {
+                Text = segment.text,
+                Size = misc.hitlogs_size,
+                Font = misc.hitlogs_font,
+                Center = false,
+                Outline = true,
+                Color = segment.color or Color3.new(1, 1, 1),
+                Position = Vector2.new(-300, -300),
+                Visible = true,
+                ZIndex = 101,
+            }),
+            color = segment.color,
+            color_key = segment.color_key,
+        }
+    end
+    return { segments = segs, spawn_tick = spawn_time }
+end
+
+function cheat.hitlogs.remove(log)
+    for _, segment in ipairs(log.segments) do
+        cheat.utility.remove_drawing(segment.drawing)
+    end
+end
+
+function cheat.hitlogs.format(shot, valid, damage)
+    local name = shot.name or "unknown"
+    if valid then
+        return {
+            { text = "shot hit " },
+            { text = name, color = Color3.fromRGB(170, 170, 170) },
+            { text = ", " },
+            { text = tostring(damage or 0) .. "hp", color_key = "hp" },
+            { text = " dealt" },
+        }
+    end
+    return {
+        { text = "shot invalid on " },
+        { text = name, color_key = "invalid" },
+    }
+end
+
+cheat.utility.new_renderstepped(function()
+    local now = os.clock()
+
+    for i = #cheat.hitlogs.pending, 1, -1 do
+        local pending = cheat.hitlogs.pending[i]
+        if now - pending.tick > 0.15 then
+            local damage = 0
+            if pending.humanoid and pending.humanoid.Parent then
+                damage = math.max(0, math.floor(pending.health_before - pending.humanoid.Health + 0.5))
+            end
+            if misc.hit_effect then
+                cheat.utility.spawn_hit_effect(pending.hit_pos)
+            end
+            if misc.damage_numbers and damage > 0 then
+                cheat.utility.spawn_damage_number(pending.hit_pos, damage)
+            end
+            if misc.hitlogs then
+                local str = cheat.hitlogs.format(pending, true, damage)
+                table.insert(cheat.hitlogs.active, 1, cheat.hitlogs.create(str, now))
+            end
+            table.remove(cheat.hitlogs.pending, i)
+        end
+    end
+
+    if not misc.hitlogs then
+        for i = #cheat.hitlogs.active, 1, -1 do
+            cheat.hitlogs.remove(cheat.hitlogs.active[i])
+            table.remove(cheat.hitlogs.active, i)
+        end
+        return
+    end
+
+    while #cheat.hitlogs.active > 6 do
+        local oldest = table.remove(cheat.hitlogs.active)
+        if oldest then cheat.hitlogs.remove(oldest) end
+    end
+
+    for i = #cheat.hitlogs.active, 1, -1 do
+        local log = cheat.hitlogs.active[i]
+        if now - log.spawn_tick > 5 then
+            cheat.hitlogs.remove(log)
+            table.remove(cheat.hitlogs.active, i)
+        end
+    end
+
+    local viewport = Camera.ViewportSize
+    local gap = 6
+    local total_height = 0
+    for _, log in ipairs(cheat.hitlogs.active) do
+        local width, height = 0, 0
+        for _, segment in ipairs(log.segments) do
+            segment.drawing.Size = misc.hitlogs_size
+            segment.drawing.Font = misc.hitlogs_font
+            local bounds = segment.drawing.TextBounds
+            segment.width = bounds.X
+            width = width + bounds.X
+            if bounds.Y > height then height = bounds.Y end
+        end
+        log.width = width
+        log.height = height
+        total_height = total_height + height + gap
+    end
+    total_height = math.max(0, total_height - gap)
+
+    local anchor_x = viewport.X / 2 + (misc.hitlogs_x or 0)
+    local next_y = viewport.Y / 2 + (misc.hitlogs_y or 0) - total_height / 2
+
+    for _, log in ipairs(cheat.hitlogs.active) do
+        local age = now - log.spawn_tick
+        local alpha = math.clamp(age / 0.12, 0, 1)
+        if age > 4 then alpha = math.min(alpha, 1 - (age - 4)) end
+
+        local x = anchor_x - log.width / 2
+        for _, segment in ipairs(log.segments) do
+            segment.drawing.Position = Vector2.new(x, next_y)
+            if segment.color_key == "hp" then
+                segment.drawing.Color = misc.hitlogs_valid_color
+            elseif segment.color_key == "invalid" then
+                segment.drawing.Color = misc.hitlogs_invalid_color
+            elseif segment.color then
+                segment.drawing.Color = segment.color
+            end
+            segment.drawing.Transparency = math.clamp(alpha, 0, 1)
+            x = x + segment.width
+        end
+        next_y = next_y + log.height + gap
+    end
+end)
+
+----------------------------------------------------------------------
+-- INSTANT EQUIP
+----------------------------------------------------------------------
+-- Speeds up the viewmodel equip animation so a weapon is ready instantly.
+
+local instant_equip = false
+
+local function instant_equip_hook(child)
+    if not instant_equip then return end
+    if child.Name == LocalPlayer.Name then return end
+    if not child:IsA("Model") then return end
+
+    task.spawn(function()
+        local iterations = 0
+        while child.Parent and iterations < 500 do
+            iterations = iterations + 1
+            local humanoid = child:FindFirstChild("Humanoid")
+            if humanoid and humanoid.Animator then
+                for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
+                    if track.Animation and track.Animation.Name == "Equip" then
+                        pcall(function()
+                            track:AdjustSpeed(15)
+                            track.TimePosition = track.Length - 0.01
+                        end)
+                        return
+                    end
+                end
+            end
+            task.wait(0.001)
+        end
+    end)
+end
+
+cheat.utility.track_connection(Camera.ChildAdded:Connect(instant_equip_hook))
+
+function cheat.set_instant_equip(value)
+    instant_equip = value == true
+end
+
+
+----------------------------------------------------------------------
 -- WINDOW
 ----------------------------------------------------------------------
 
@@ -910,6 +3124,8 @@ ui = {
 
 ui.tabs = {
     combat = wrap_box(ui.window:AddTab('Combat'), "page"),
+    esp = wrap_box(ui.window:AddTab('ESP'), "page"),
+    visuals = wrap_box(ui.window:AddTab('Visuals'), "page"),
     config = wrap_box(ui.window:AddTab('Config'), "page"),
 }
 
@@ -918,6 +3134,15 @@ local visuals_box = ui.tabs.combat:AddLeftGroupbox('VISUALS')
 local gunmods_box = ui.tabs.combat:AddRightGroupbox('GUN MODS')
 local knife_box = ui.tabs.combat:AddRightGroupbox('KNIFE MODS')
 local tracer_box = ui.tabs.combat:AddRightGroupbox('VISUAL')
+
+local esp_player_box = ui.tabs.esp:AddLeftGroupbox('PLAYER ESP')
+local esp_corpse_box = ui.tabs.esp:AddLeftGroupbox('CORPSE ESP')
+local esp_inventory_box = ui.tabs.esp:AddLeftGroupbox('INVENTORY CHECKER')
+local esp_npc_box = ui.tabs.esp:AddRightGroupbox('NPC ESP')
+local esp_preview_box = ui.tabs.esp:AddRightGroupbox('ESP PREVIEW')
+
+local visuals_lightning_box = ui.tabs.visuals:AddLeftGroupbox('LIGHTNING')
+local visuals_misc_box = ui.tabs.visuals:AddRightGroupbox('MISC')
 
 local theme_box = ui.tabs.config:AddLeftGroupbox('THEME')
 
@@ -1405,6 +3630,15 @@ gunmods_box:AddToggle('gunmods_nobob', {
     end,
 })
 
+gunmods_box:AddToggle('gunmods_instant_equip', {
+    Text = 'instant equip',
+    Default = false,
+    Tooltip = 'Speeds up the weapon equip animation so the gun is ready instantly.',
+    Callback = function(v)
+        cheat.set_instant_equip(v)
+    end,
+})
+
 ----------------------------------------------------------------------
 -- KNIFE MODS UI
 ----------------------------------------------------------------------
@@ -1511,6 +3745,1195 @@ tracer_box:AddSlider('tracer_lifetime', {
         silent_aim.tracer_lifetime = v
     end,
 })
+
+----------------------------------------------------------------------
+-- ESP UI
+----------------------------------------------------------------------
+
+-- Builds the option set for one ESP module (player / npc). The two modules
+-- share the same renderer but keep their own settings.
+local function add_esp_module(box, prefix, settings, master_text)
+    box:AddToggle(prefix .. "_enabled", {
+        Text = master_text or 'enable esp',
+        Default = false,
+        Callback = function(v)
+            settings.enabled = v
+        end,
+    })
+
+    box:AddToggle(prefix .. "_box", {
+        Text = 'box esp',
+        Default = false,
+        Callback = function(v)
+            settings.box = v
+        end,
+    }):AddColorPicker(prefix .. "_box_color", {
+        Default = settings.box_color[1],
+        Title = 'box color',
+        Transparency = 0,
+        Callback = function(v)
+            settings.box_color[1] = v
+        end,
+    })
+
+    box:AddSlider(prefix .. "_box_transparency", {
+        Text = 'box transparency',
+        Default = 0, Min = 0, Max = 1, Rounding = 2, Compact = true,
+        Callback = function(v)
+            settings.box_color[2] = v
+        end,
+    })
+
+    box:AddToggle(prefix .. "_box_fill", {
+        Text = 'box fill',
+        Default = false,
+        Callback = function(v)
+            settings.box_fill = v
+        end,
+    }):AddColorPicker(prefix .. "_box_fill_color", {
+        Default = settings.box_fill_color[1],
+        Title = 'box fill color',
+        Transparency = 0,
+        Callback = function(v)
+            settings.box_fill_color[1] = v
+        end,
+    })
+
+    box:AddSlider(prefix .. "_box_fill_transparency", {
+        Text = 'box fill transparency',
+        Default = 0.5, Min = 0, Max = 1, Rounding = 2, Compact = true,
+        Callback = function(v)
+            settings.box_fill_color[2] = v
+        end,
+    })
+
+    box:AddToggle(prefix .. "_box_outline", {
+        Text = 'box outline',
+        Default = false,
+        Callback = function(v)
+            settings.box_outline = v
+        end,
+    }):AddColorPicker(prefix .. "_box_outline_color", {
+        Default = settings.box_outline_color[1],
+        Title = 'box outline color',
+        Transparency = 0,
+        Callback = function(v)
+            settings.box_outline_color[1] = v
+        end,
+    })
+
+    box:AddDropdown(prefix .. "_box_mode", {
+        Text = 'box mode',
+        Values = { '3D Bounding', 'Static Rectangle' },
+        Default = 1,
+        Multi = false,
+        Callback = function(v)
+            settings.box_mode = v
+        end,
+    })
+
+    box:AddToggle(prefix .. "_outline_all", {
+        Text = 'outline (all text)',
+        Default = false,
+        Callback = function(v)
+            settings.realname_outline = v
+            settings.displayname_outline = v
+            settings.dist_outline = v
+            settings.weapon_outline = v
+        end,
+    }):AddColorPicker(prefix .. "_outline_color", {
+        Default = Color3.new(),
+        Title = 'outline color',
+        Transparency = 0,
+        Callback = function(v)
+            settings.realname_outline_color = v
+            settings.displayname_outline_color = v
+            settings.dist_outline_color = v
+            settings.weapon_outline_color = v
+        end,
+    })
+
+    box:AddToggle(prefix .. "_name", {
+        Text = 'name esp',
+        Default = false,
+        Callback = function(v)
+            settings.realname = v
+        end,
+    }):AddColorPicker(prefix .. "_name_color", {
+        Default = settings.realname_color[1],
+        Title = 'name color',
+        Transparency = 0,
+        Callback = function(v)
+            settings.realname_color[1] = v
+        end,
+    })
+
+    box:AddSlider(prefix .. "_name_transparency", {
+        Text = 'name transparency',
+        Default = 0, Min = 0, Max = 1, Rounding = 2, Compact = true,
+        Callback = function(v)
+            settings.realname_color[2] = v
+        end,
+    })
+
+    box:AddToggle(prefix .. "_displayname", {
+        Text = 'display name esp',
+        Default = false,
+        Callback = function(v)
+            settings.displayname = v
+        end,
+    }):AddColorPicker(prefix .. "_displayname_color", {
+        Default = settings.displayname_color[1],
+        Title = 'display name color',
+        Transparency = 0,
+        Callback = function(v)
+            settings.displayname_color[1] = v
+        end,
+    })
+
+    local health_toggle = box:AddToggle(prefix .. "_health", {
+        Text = 'health esp',
+        Default = false,
+        Callback = function(v)
+            settings.health = v
+        end,
+    })
+
+    health_toggle:AddColorPicker(prefix .. "_health_color_top", {
+        Default = settings.health_color_top,
+        Title = 'health color top',
+        Transparency = 0,
+        Callback = function(v)
+            settings.health_color_top = v
+        end,
+    })
+
+    health_toggle:AddColorPicker(prefix .. "_health_color_bottom", {
+        Default = settings.health_color_bottom,
+        Title = 'health color bottom',
+        Transparency = 0,
+        Callback = function(v)
+            settings.health_color_bottom = v
+        end,
+    })
+
+    health_toggle:AddColorPicker(prefix .. "_health_number_color", {
+        Default = settings.health_color[1],
+        Title = 'health number color',
+        Transparency = 0,
+        Callback = function(v)
+            settings.health_color[1] = v
+        end,
+    })
+
+    box:AddDropdown(prefix .. "_health_mode", {
+        Text = 'health elements',
+        Values = { 'Bar', 'Number' },
+        Default = { 'Bar' },
+        Multi = true,
+        Callback = function(v)
+            settings.health_modes = v
+        end,
+    })
+
+    box:AddSlider(prefix .. "_health_thickness", {
+        Text = 'health bar thickness',
+        Default = 2, Min = 1, Max = 10, Rounding = 1, Compact = true,
+        Callback = function(v)
+            settings.health_thickness = v
+        end,
+    })
+
+    box:AddSlider(prefix .. "_health_glow", {
+        Text = 'health glow size',
+        Default = 5, Min = 1, Max = 20, Rounding = 1, Compact = true,
+        Callback = function(v)
+            settings.health_glow_size = v
+        end,
+    })
+
+    box:AddToggle(prefix .. "_distance", {
+        Text = 'distance esp',
+        Default = false,
+        Callback = function(v)
+            settings.dist = v
+        end,
+    }):AddColorPicker(prefix .. "_distance_color", {
+        Default = settings.dist_color[1],
+        Title = 'distance color',
+        Transparency = 0,
+        Callback = function(v)
+            settings.dist_color[1] = v
+        end,
+    })
+
+    box:AddToggle(prefix .. "_weapon", {
+        Text = 'weapon esp',
+        Default = false,
+        Callback = function(v)
+            settings.weapon = v
+        end,
+    }):AddColorPicker(prefix .. "_weapon_color", {
+        Default = settings.weapon_color[1],
+        Title = 'weapon color',
+        Transparency = 0,
+        Callback = function(v)
+            settings.weapon_color[1] = v
+        end,
+    })
+
+    box:AddToggle(prefix .. "_skeleton", {
+        Text = 'skeleton esp',
+        Default = false,
+        Callback = function(v)
+            settings.skeleton = v
+        end,
+    }):AddColorPicker(prefix .. "_skeleton_color", {
+        Default = settings.skeleton_color[1],
+        Title = 'skeleton color',
+        Transparency = 0,
+        Callback = function(v)
+            settings.skeleton_color[1] = v
+        end,
+    })
+
+    box:AddToggle(prefix .. "_chams", {
+        Text = 'chams',
+        Default = false,
+        Callback = function(v)
+            settings.chams = v
+        end,
+    }):AddColorPicker(prefix .. "_chams_color", {
+        Default = settings.chams_fill_color[1],
+        Title = 'chams color',
+        Transparency = 0,
+        Callback = function(v)
+            settings.chams_fill_color[1] = v
+        end,
+    })
+
+    box:AddSlider(prefix .. "_chams_transparency", {
+        Text = 'chams transparency',
+        Default = 0, Min = 0, Max = 1, Rounding = 2, Compact = true,
+        Callback = function(v)
+            settings.chams_fill_color[2] = v
+        end,
+    })
+
+    box:AddSlider(prefix .. "_chams_glow", {
+        Text = 'chams glow factor',
+        Default = 2, Min = 1, Max = 10, Rounding = 1, Compact = true,
+        Callback = function(v)
+            settings.chams_glow_factor = v
+        end,
+    })
+
+    box:AddToggle(prefix .. "_chams_overlay", {
+        Text = 'chams highlight overlay',
+        Default = true,
+        Callback = function(v)
+            settings.chams_overlay = v
+        end,
+    })
+end
+
+add_esp_module(esp_player_box, 'esp_player', ESP.settings.player, 'enable esp')
+add_esp_module(esp_npc_box, 'esp_npc', ESP.settings.npc, 'enable esp')
+
+-- corpse esp
+esp_corpse_box:AddToggle('esp_corpse_enabled', {
+    Text = 'enable esp',
+    Default = false,
+    Callback = function(v)
+        ESP.settings.corpse.enabled = v
+    end,
+}):AddColorPicker('esp_corpse_color', {
+    Default = ESP.settings.corpse.color,
+    Title = 'color',
+    Transparency = 0,
+    Callback = function(v)
+        ESP.settings.corpse.color = v
+    end,
+})
+
+esp_corpse_box:AddToggle('esp_corpse_name', {
+    Text = 'show name',
+    Default = true,
+    Callback = function(v)
+        ESP.settings.corpse.name = v
+    end,
+})
+
+esp_corpse_box:AddToggle('esp_corpse_distance', {
+    Text = 'show distance',
+    Default = false,
+    Callback = function(v)
+        ESP.settings.corpse.distance = v
+    end,
+})
+
+esp_corpse_box:AddToggle('esp_corpse_outline', {
+    Text = 'outline',
+    Default = false,
+    Callback = function(v)
+        ESP.settings.corpse.outline = v
+    end,
+}):AddColorPicker('esp_corpse_outline_color', {
+    Default = Color3.new(),
+    Title = 'outline color',
+    Transparency = 0,
+    Callback = function(v)
+        ESP.settings.corpse.outline_color = v
+    end,
+})
+
+-- inventory checker
+esp_inventory_box:AddToggle('inventory_checker_enabled', {
+    Text = 'inventory checker',
+    Default = false,
+    Callback = function(v)
+        INVENTORY.enabled = v
+    end,
+})
+
+esp_inventory_box:AddToggle('inventory_checker_full', {
+    Text = 'show full inventory',
+    Default = false,
+    Callback = function(v)
+        INVENTORY.full = v
+    end,
+})
+
+esp_inventory_box:AddToggle('inventory_checker_value', {
+    Text = 'show inventory value',
+    Default = false,
+    Callback = function(v)
+        INVENTORY.value = v
+    end,
+})
+
+esp_inventory_box:AddToggle('inventory_checker_corpse', {
+    Text = 'check corpse',
+    Default = false,
+    Callback = function(v)
+        INVENTORY.corpse = v
+    end,
+})
+
+esp_inventory_box:AddDropdown('inventory_checker_side', {
+    Text = 'text position',
+    Values = { 'Left', 'Right' },
+    Default = 'Right',
+    Callback = function(v)
+        INVENTORY.side = v
+    end,
+})
+
+esp_inventory_box:AddSlider('inventory_checker_x', {
+    Text = 'checker x',
+    Default = 24, Min = 0, Max = 3000, Rounding = 0, Compact = true,
+    Callback = function(v)
+        INVENTORY.x = v
+    end,
+})
+
+esp_inventory_box:AddSlider('inventory_checker_y', {
+    Text = 'checker y',
+    Default = 300, Min = 0, Max = 3000, Rounding = 0, Compact = true,
+    Callback = function(v)
+        INVENTORY.y = v
+    end,
+})
+
+esp_inventory_box:AddToggle('inventory_checker_stretch', {
+    Text = 'stretch size',
+    Default = true,
+    Callback = function(v)
+        INVENTORY.stretch = v
+    end,
+})
+
+esp_inventory_box:AddSlider('inventory_checker_delay', {
+    Text = 'refresh delay',
+    Default = 0.1, Min = 0.05, Max = 2, Rounding = 2, Compact = true,
+    Callback = function(v)
+        INVENTORY.delay = v
+    end,
+})
+
+esp_inventory_box:AddDivider()
+
+esp_inventory_box:AddToggle('item_finder_enabled', {
+    Text = 'item finder',
+    Default = false,
+    Callback = function(v)
+        ITEM_FINDER.enabled = v
+    end,
+})
+
+esp_inventory_box:AddDropdown('item_finder_items', {
+    Text = 'items to find',
+    Values = finder_items,
+    Default = {},
+    Multi = true,
+    Callback = function(v)
+        local lookup = {}
+        if type(v) == "table" then
+            for key, value in pairs(v) do
+                if type(key) == "number" and type(value) == "string" then
+                    lookup[value] = true
+                elseif value == true and type(key) == "string" then
+                    lookup[key] = true
+                end
+            end
+        end
+        ITEM_FINDER.items = lookup
+    end,
+})
+
+esp_inventory_box:AddSlider('item_finder_x', {
+    Text = 'finder x',
+    Default = 300, Min = 0, Max = 3000, Rounding = 0, Compact = true,
+    Callback = function(v)
+        ITEM_FINDER.x = v
+    end,
+})
+
+esp_inventory_box:AddSlider('item_finder_y', {
+    Text = 'finder y',
+    Default = 50, Min = 0, Max = 3000, Rounding = 0, Compact = true,
+    Callback = function(v)
+        ITEM_FINDER.y = v
+    end,
+})
+
+esp_inventory_box:AddToggle('item_finder_stretch', {
+    Text = 'stretch size',
+    Default = false,
+    Callback = function(v)
+        ITEM_FINDER.stretch = v
+    end,
+})
+
+----------------------------------------------------------------------
+-- ESP PREVIEW
+----------------------------------------------------------------------
+-- A live viewport inside the menu that renders a character with the ESP
+-- overlay on top, so the settings can be checked without a target.
+
+local esp_preview = {
+    mode = "player",
+    model = nil,
+    viewport = nil,
+    camera = nil,
+    world = nil,
+    overlay = {},
+}
+
+local function preview_find_source(mode)
+    if mode == "npc" then
+        local zones = workspace:FindFirstChild("AiZones")
+        if zones then
+            for _, zone in ipairs(zones:GetChildren()) do
+                for _, npc in ipairs(zone:GetChildren()) do
+                    if npc:IsA("Model") and npc:FindFirstChild("Head") then
+                        return npc
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    local character = LocalPlayer.Character
+    if character then return character end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            return player.Character
+        end
+    end
+    return nil
+end
+
+local function preview_build_overlay(parent)
+    local overlay = {}
+    for i = 1, 4 do
+        local frame = Instance.new("Frame")
+        frame.BackgroundColor3 = Color3.new(1, 1, 1)
+        frame.BorderSizePixel = 0
+        frame.Size = UDim2.fromOffset(1, 1)
+        frame.Visible = false
+        frame.ZIndex = 20
+        frame.Parent = parent
+        overlay["box_" .. i] = frame
+    end
+
+    local name = Instance.new("TextLabel")
+    name.BackgroundTransparency = 1
+    name.BorderSizePixel = 0
+    name.Size = UDim2.fromOffset(120, 14)
+    name.Text = ""
+    name.TextColor3 = Color3.new(1, 1, 1)
+    name.TextSize = 12
+    name.TextStrokeTransparency = 0
+    name.TextXAlignment = Enum.TextXAlignment.Center
+    name.Visible = false
+    name.ZIndex = 21
+    name.Parent = parent
+    overlay.name = name
+
+    local health_bg = Instance.new("Frame")
+    health_bg.BackgroundColor3 = Color3.new(0, 0, 0)
+    health_bg.BorderSizePixel = 0
+    health_bg.Size = UDim2.fromOffset(3, 10)
+    health_bg.Visible = false
+    health_bg.ZIndex = 20
+    health_bg.Parent = parent
+    overlay.health_bg = health_bg
+
+    local health_fill = Instance.new("Frame")
+    health_fill.BackgroundColor3 = Color3.new(0, 1, 0)
+    health_fill.BorderSizePixel = 0
+    health_fill.Size = UDim2.fromOffset(3, 10)
+    health_fill.Visible = false
+    health_fill.ZIndex = 21
+    health_fill.Parent = parent
+    overlay.health_fill = health_fill
+
+    return overlay
+end
+
+local function preview_set_model(mode)
+    esp_preview.mode = mode
+    if esp_preview.model then
+        pcall(function() esp_preview.model:Destroy() end)
+        esp_preview.model = nil
+    end
+
+    local source = preview_find_source(mode)
+    if not source or not esp_preview.world then return end
+
+    local ok, clone = pcall(function() return source:Clone() end)
+    if not ok or not clone then return end
+
+    for _, descendant in ipairs(clone:GetDescendants()) do
+        if descendant:IsA("Script") or descendant:IsA("LocalScript") or descendant:IsA("ModuleScript") then
+            descendant:Destroy()
+        end
+    end
+
+    local humanoid = clone:FindFirstChildOfClass("Humanoid")
+    if humanoid then humanoid:Destroy() end
+
+    clone.Name = "CenthackPreviewModel"
+    clone.Parent = esp_preview.world
+    esp_preview.model = clone
+
+    pcall(function()
+        clone:PivotTo(CFrame.new(0, 0, 0))
+    end)
+end
+
+local function preview_frame_camera()
+    local model = esp_preview.model
+    if not (model and esp_preview.camera) then return end
+    local bounds_cf, size = model:GetBoundingBox()
+    local center = bounds_cf.Position
+    local distance = math.max(size.Z, 4) * 1.6 + 4
+    esp_preview.camera.CFrame = CFrame.lookAt(
+        center + Vector3.new(0, 0, distance),
+        center
+    )
+end
+
+-- The widget is embedded in the groupbox through the library so the preview
+-- lives inside the menu window.
+esp_preview_box:AddWidget('esp_preview', {
+    Default = { Size = UDim2.new(1, -4, 0, 240) },
+    Create = function(widget)
+        local viewport = Library:CreateViewport({
+            Size = UDim2.new(1, 0, 1, 0),
+            Parent = widget.Inner,
+        })
+        esp_preview.viewport = viewport.Viewport
+        esp_preview.camera = viewport.Camera
+        esp_preview.world = viewport.World
+        esp_preview.overlay = preview_build_overlay(widget.Inner)
+        preview_set_model(esp_preview.mode)
+        preview_frame_camera()
+    end,
+})
+
+cheat.esp_preview = esp_preview
+
+function esp_preview.set_model(mode)
+    preview_set_model(mode)
+    preview_frame_camera()
+end
+
+esp_preview_box:AddButton('player preview', function()
+    preview_set_model("player")
+    preview_frame_camera()
+end)
+
+esp_preview_box:AddButton('npc preview', function()
+    preview_set_model("npc")
+    preview_frame_camera()
+end)
+
+-- Keeps the preview overlay in sync with the live ESP settings.
+cheat.utility.new_renderstepped(function()
+    local model = esp_preview.model
+    local overlay = esp_preview.overlay
+    local camera = esp_preview.camera
+
+    if not (model and camera and overlay and overlay.name) then return end
+
+    local settings = esp_preview.mode == "npc" and ESP.settings.npc or ESP.settings.player
+
+    local parts = {}
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("BasePart") and esp_is_body_part(descendant.Name) then
+            parts[#parts + 1] = descendant
+        end
+    end
+
+    if #parts == 0 then
+        overlay.name.Visible = false
+        for i = 1, 4 do overlay["box_" .. i].Visible = false end
+        overlay.health_bg.Visible = false
+        overlay.health_fill.Visible = false
+        return
+    end
+
+    local minx, miny = math.huge, math.huge
+    local maxx, maxy = -math.huge, -math.huge
+    for _, part in ipairs(parts) do
+        local size = part.Size
+        local position = part.Position
+        local x0, y0 = position.X - size.X / 2, position.Y - size.Y / 2
+        local x1, y1 = position.X + size.X / 2, position.Y + size.Y / 2
+        local p0 = camera:WorldToViewportPoint(Vector3.new(x0, y0, position.Z))
+        local p1 = camera:WorldToViewportPoint(Vector3.new(x1, y1, position.Z))
+        if p0.X < minx then minx = p0.X end
+        if p0.Y < miny then miny = p0.Y end
+        if p1.X > maxx then maxx = p1.X end
+        if p1.Y > maxy then maxy = p1.Y end
+    end
+
+    minx, miny = math.floor(minx), math.floor(miny)
+    maxx, maxy = math.floor(maxx), math.floor(maxy)
+    local width = maxx - minx
+    local height = maxy - miny
+
+    if width < 1 or height < 1 then
+        overlay.name.Visible = false
+        for i = 1, 4 do overlay["box_" .. i].Visible = false end
+        return
+    end
+
+    local box_color = settings.box_color[1]
+    overlay.box_1.Position = UDim2.fromOffset(0, 0)
+    overlay.box_1.Size = UDim2.fromOffset(width, 1)
+    overlay.box_2.Position = UDim2.fromOffset(0, height - 1)
+    overlay.box_2.Size = UDim2.fromOffset(width, 1)
+    overlay.box_3.Position = UDim2.fromOffset(0, 0)
+    overlay.box_3.Size = UDim2.fromOffset(1, height)
+    overlay.box_4.Position = UDim2.fromOffset(width - 1, 0)
+    overlay.box_4.Size = UDim2.fromOffset(1, height)
+    for i = 1, 4 do
+        overlay["box_" .. i].BackgroundColor3 = box_color
+        overlay["box_" .. i].Visible = settings.box
+    end
+
+    overlay.name.Text = model.Name
+    overlay.name.TextColor3 = settings.realname_color[1]
+    overlay.name.Position = UDim2.fromOffset(math.max(0, (width / 2) - 60), math.max(0, miny - 16))
+    overlay.name.Visible = settings.realname
+
+    local percent = 0.75
+    overlay.health_bg.Position = UDim2.fromOffset(math.max(0, minx - 6), miny)
+    overlay.health_bg.Size = UDim2.fromOffset(3, height)
+    overlay.health_bg.Visible = settings.health
+
+    overlay.health_fill.Position = UDim2.fromOffset(math.max(0, minx - 6), miny + (height * (1 - percent)))
+    overlay.health_fill.Size = UDim2.fromOffset(3, math.max(2, height * percent))
+    overlay.health_fill.BackgroundColor3 = settings.health_color_top:Lerp(settings.health_color_bottom, 1 - percent)
+    overlay.health_fill.Visible = settings.health
+end)
+
+----------------------------------------------------------------------
+-- VISUALS TAB UI
+----------------------------------------------------------------------
+-- LEFT: lightning (world) | RIGHT: misc
+
+visuals_lightning_box:AddToggle('world_ambient', {
+    Text = 'enable ambient',
+    Default = false,
+    Callback = function(v)
+        world.ambient_enabled = v
+    end,
+}):AddColorPicker('world_ambient_color1', {
+    Default = world.ambient_color1,
+    Title = 'ambient color 1',
+    Transparency = 0,
+    Callback = function(v)
+        world.ambient_color1 = v
+    end,
+}):AddColorPicker('world_ambient_color2', {
+    Default = world.ambient_color2,
+    Title = 'ambient color 2',
+    Transparency = 0,
+    Callback = function(v)
+        world.ambient_color2 = v
+    end,
+})
+
+visuals_lightning_box:AddToggle('world_time', {
+    Text = 'enable time changer',
+    Default = false,
+    Callback = function(v)
+        world.time_enabled = v
+    end,
+})
+
+visuals_lightning_box:AddSlider('world_time_value', {
+    Text = 'time of day',
+    Default = 12, Min = 0, Max = 24, Rounding = 1, Compact = true,
+    Callback = function(v)
+        world.time = v
+    end,
+})
+
+visuals_lightning_box:AddToggle('world_no_fog', {
+    Text = 'no fog',
+    Default = false,
+    Callback = function(v)
+        world.no_fog = v
+        world.apply_fog()
+    end,
+})
+
+visuals_lightning_box:AddToggle('world_no_shadows', {
+    Text = 'no shadows',
+    Default = false,
+    Callback = function(v)
+        world.no_shadows = v
+        Lighting.GlobalShadows = not v
+    end,
+})
+
+visuals_lightning_box:AddToggle('world_no_clouds', {
+    Text = 'no clouds',
+    Default = false,
+    Callback = function(v)
+        world.no_clouds = v
+        world.apply_clouds()
+    end,
+})
+
+visuals_lightning_box:AddToggle('world_no_grass', {
+    Text = 'no grass',
+    Default = false,
+    Callback = function(v)
+        world.no_grass = v
+        world.apply_grass()
+    end,
+})
+
+visuals_lightning_box:AddToggle('world_no_leafs', {
+    Text = 'no leafs',
+    Default = false,
+    Callback = function(v)
+        world.no_leafs = v
+        world.apply_leafs()
+    end,
+})
+
+visuals_lightning_box:AddToggle('world_potato', {
+    Text = 'potato mode',
+    Default = false,
+    Callback = function(v)
+        world.potato = v
+    end,
+})
+
+visuals_lightning_box:AddDivider()
+
+visuals_lightning_box:AddToggle('world_skybox_enabled', {
+    Text = 'custom skybox',
+    Default = false,
+    Callback = function(v)
+        world.skybox_enabled = v
+        world.apply_skybox()
+    end,
+})
+
+visuals_lightning_box:AddDropdown('world_skybox_select', {
+    Text = 'skybox preset',
+    Values = { 'Purple Nebula', 'Purple Planet', 'Vaporwave', 'Deep Space', 'Night Sky', 'Sunset', 'Blood Moon' },
+    Default = 1,
+    Multi = false,
+    Callback = function(v)
+        world.skybox = v
+        world.apply_skybox()
+    end,
+})
+
+visuals_lightning_box:AddSlider('world_skybox_brightness', {
+    Text = 'sky brightness',
+    Default = 100, Min = 10, Max = 1000, Rounding = 0, Compact = true,
+    Callback = function(v)
+        world.skybox_brightness = v
+        world.apply_skybox()
+    end,
+})
+
+visuals_lightning_box:AddSlider('world_skybox_rotation_x', {
+    Text = 'sky rotation x',
+    Default = 0, Min = -90, Max = 90, Rounding = 0, Compact = true,
+    Callback = function(v)
+        world.skybox_rotation_x = v
+        world.apply_skybox()
+    end,
+})
+
+visuals_lightning_box:AddSlider('world_skybox_rotation_z', {
+    Text = 'sky rotation z',
+    Default = 0, Min = 0, Max = 360, Rounding = 0, Compact = true,
+    Callback = function(v)
+        world.skybox_rotation_z = v
+        world.apply_skybox()
+    end,
+})
+
+-- MISC ----------------------------------------------------------------------
+
+visuals_misc_box:AddDropdown('misc_melee_skin', {
+    Text = 'knife changer',
+    Values = {
+        'None', 'Karambit', 'ButterflyKnife', 'IceAxe', 'PlasmaNinjato', 'Greatsword',
+        'Longsword', 'Cutlass', 'IceDagger', 'M9Fade', 'M9XR7', 'AnarchyTomahawk',
+        'FlipKnifeShark', 'Kukri', 'Scythe', 'GoldenDV2',
+    },
+    Default = 1,
+    Multi = false,
+    Tooltip = 'Override the equipped melee weapon with another skin.',
+    Callback = function(v)
+        misc.melee_skin = v
+        misc_apply_melee_skin(v)
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_melee_skin_scale', {
+    Text = 'knife scale',
+    Default = 10, Min = 5, Max = 30, Rounding = 1, Compact = true,
+    Callback = function(v)
+        misc.melee_skin_scale = v / 10
+    end,
+})
+
+visuals_misc_box:AddDivider()
+
+visuals_misc_box:AddLabel('viewmodel offset')
+
+visuals_misc_box:AddSlider('misc_viewmodel_x', {
+    Text = 'offset x',
+    Default = 0, Min = -5, Max = 5, Rounding = 2, Compact = true,
+    Callback = function(v)
+        misc.viewmodel_x = v
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_viewmodel_y', {
+    Text = 'offset y',
+    Default = 0, Min = -5, Max = 5, Rounding = 2, Compact = true,
+    Callback = function(v)
+        misc.viewmodel_y = v
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_viewmodel_z', {
+    Text = 'offset z',
+    Default = 0, Min = -5, Max = 5, Rounding = 2, Compact = true,
+    Callback = function(v)
+        misc.viewmodel_z = v
+    end,
+})
+
+visuals_misc_box:AddDivider()
+
+visuals_misc_box:AddToggle('misc_arm_chams', {
+    Text = 'arm chams',
+    Default = false,
+    Callback = function(v)
+        misc.arm_chams = v
+    end,
+}):AddColorPicker('misc_arm_chams_color', {
+    Default = misc.arm_chams_color,
+    Title = 'arm chams color',
+    Transparency = 0,
+    Callback = function(v)
+        misc.arm_chams_color = v
+    end,
+})
+
+visuals_misc_box:AddDropdown('misc_arm_chams_material', {
+    Text = 'arm chams material',
+    Values = { 'SmoothPlastic', 'ForceField', 'Neon', 'Plastic', 'Glass', 'Gold' },
+    Default = 'SmoothPlastic',
+    Multi = false,
+    Callback = function(v)
+        misc.arm_chams_material = v
+    end,
+})
+
+visuals_misc_box:AddToggle('misc_gun_chams', {
+    Text = 'gun chams',
+    Default = false,
+    Callback = function(v)
+        misc.gun_chams = v
+    end,
+}):AddColorPicker('misc_gun_chams_color', {
+    Default = misc.gun_chams_color,
+    Title = 'gun chams color',
+    Transparency = 0,
+    Callback = function(v)
+        misc.gun_chams_color = v
+    end,
+})
+
+visuals_misc_box:AddDropdown('misc_gun_chams_material', {
+    Text = 'gun chams material',
+    Values = { 'SmoothPlastic', 'ForceField', 'Neon', 'Plastic', 'Glass', 'Gold' },
+    Default = 'SmoothPlastic',
+    Multi = false,
+    Callback = function(v)
+        misc.gun_chams_material = v
+    end,
+})
+
+visuals_misc_box:AddDivider()
+
+visuals_misc_box:AddToggle('misc_fov', {
+    Text = 'fov enabled',
+    Default = false,
+    Callback = function(v)
+        misc.fov_enabled = v
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_fov_size', {
+    Text = 'fov size',
+    Default = 70, Min = 0, Max = 180, Rounding = 0, Compact = true,
+    Callback = function(v)
+        misc.fov_size = v
+    end,
+})
+
+visuals_misc_box:AddToggle('misc_zoom', {
+    Text = 'zoom enabled',
+    Default = false,
+    Callback = function(v)
+        misc.zoom_enabled = v
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_zoom_size', {
+    Text = 'zoom size',
+    Default = 10, Min = 0, Max = 90, Rounding = 0, Compact = true,
+    Callback = function(v)
+        misc.zoom_size = v
+    end,
+})
+
+visuals_misc_box:AddToggle('misc_no_screen_fx', {
+    Text = 'no screen effects',
+    Default = false,
+    Callback = function(v)
+        misc.no_screen_fx = v
+    end,
+})
+
+visuals_misc_box:AddToggle('misc_remove_muzzle_flash', {
+    Text = 'remove muzzle flash',
+    Default = false,
+    Callback = function(v)
+        misc.remove_muzzle_flash = v
+    end,
+})
+
+visuals_misc_box:AddToggle('misc_force_render', {
+    Text = 'force render players',
+    Default = false,
+    Callback = function(v)
+        misc.force_render = v
+    end,
+})
+
+visuals_misc_box:AddToggle('misc_clean_inventory', {
+    Text = 'clean inventory background',
+    Default = false,
+    Callback = function(v)
+        misc.clean_inventory_bg = v
+        misc_clean_inventory()
+    end,
+})
+
+visuals_misc_box:AddDivider()
+
+visuals_misc_box:AddToggle('misc_hit_effect', {
+    Text = 'hit effect',
+    Default = false,
+    Callback = function(v)
+        misc.hit_effect = v
+    end,
+}):AddColorPicker('misc_hit_effect_color', {
+    Default = misc.hit_effect_color,
+    Title = 'hit effect color',
+    Transparency = 0,
+    Callback = function(v)
+        misc.hit_effect_color = v
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_hit_effect_amount', {
+    Text = 'hit effect amount',
+    Default = 100, Min = 50, Max = 200, Rounding = 0, Compact = true,
+    Callback = function(v)
+        misc.hit_effect_amount = v
+    end,
+})
+
+visuals_misc_box:AddToggle('misc_damage_numbers', {
+    Text = 'damage numbers',
+    Default = false,
+    Callback = function(v)
+        misc.damage_numbers = v
+    end,
+}):AddColorPicker('misc_damage_numbers_color', {
+    Default = misc.damage_numbers_color,
+    Title = 'damage number color',
+    Transparency = 0,
+    Callback = function(v)
+        misc.damage_numbers_color = v
+    end,
+})
+
+visuals_misc_box:AddToggle('misc_damage_numbers_random', {
+    Text = 'random directions',
+    Default = false,
+    Callback = function(v)
+        misc.damage_numbers_random = v
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_damage_numbers_spread', {
+    Text = 'numbers spread',
+    Default = 1, Min = 0, Max = 20, Rounding = 1, Compact = true,
+    Callback = function(v)
+        misc.damage_numbers_spread = v
+    end,
+})
+
+visuals_misc_box:AddDivider()
+
+visuals_misc_box:AddToggle('misc_hitmarkers', {
+    Text = 'hitmarkers',
+    Default = false,
+    Callback = function(v)
+        misc.hitmarkers = v
+        if not v then cheat.hitmarkers.clear() end
+    end,
+}):AddColorPicker('misc_hitmarkers_color', {
+    Default = misc.hitmarkers_color,
+    Title = 'hitmarker color',
+    Transparency = 0,
+    Callback = function(v)
+        misc.hitmarkers_color = v
+    end,
+}):AddColorPicker('misc_hitmarkers_outline_color', {
+    Default = misc.hitmarkers_outline_color,
+    Title = 'hitmarker outline color',
+    Transparency = 0,
+    Callback = function(v)
+        misc.hitmarkers_outline_color = v
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_hitmarkers_lifetime', {
+    Text = 'hitmarker lifetime',
+    Default = 0.7, Min = 0.1, Max = 3, Rounding = 1, Compact = true,
+    Callback = function(v)
+        misc.hitmarkers_lifetime = v
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_hitmarkers_size', {
+    Text = 'hitmarker size',
+    Default = 8, Min = 2, Max = 30, Rounding = 0, Compact = true,
+    Callback = function(v)
+        misc.hitmarkers_size = v
+    end,
+})
+
+visuals_misc_box:AddToggle('misc_hitlogs', {
+    Text = 'hit logs',
+    Default = false,
+    Callback = function(v)
+        misc.hitlogs = v
+    end,
+}):AddColorPicker('misc_hitlogs_valid_color', {
+    Default = misc.hitlogs_valid_color,
+    Title = 'hp color',
+    Transparency = 0,
+    Callback = function(v)
+        misc.hitlogs_valid_color = v
+    end,
+}):AddColorPicker('misc_hitlogs_invalid_color', {
+    Default = misc.hitlogs_invalid_color,
+    Title = 'invalid color',
+    Transparency = 0,
+    Callback = function(v)
+        misc.hitlogs_invalid_color = v
+    end,
+})
+
+visuals_misc_box:AddDropdown('misc_hitlogs_font', {
+    Text = 'hit logs font',
+    Values = { 'UI', 'System', 'Plex', 'Monospace' },
+    Default = 2,
+    Multi = false,
+    Callback = function(v)
+        local fonts = { UI = 0, System = 1, Plex = 2, Monospace = 3 }
+        misc.hitlogs_font = fonts[v] or 2
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_hitlogs_size', {
+    Text = 'hit logs size',
+    Default = 14, Min = 10, Max = 30, Rounding = 0, Compact = true,
+    Callback = function(v)
+        misc.hitlogs_size = v
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_hitlogs_x', {
+    Text = 'hit logs x',
+    Default = 0, Min = -1500, Max = 1500, Rounding = 0, Compact = true,
+    Callback = function(v)
+        misc.hitlogs_x = v
+    end,
+})
+
+visuals_misc_box:AddSlider('misc_hitlogs_y', {
+    Text = 'hit logs y',
+    Default = 0, Min = -800, Max = 800, Rounding = 0, Compact = true,
+    Callback = function(v)
+        misc.hitlogs_y = v
+    end,
+})
+
 
 ----------------------------------------------------------------------
 -- TARGETING
@@ -3158,6 +6581,38 @@ do
                     setnamecallmethod(methodstr)
                     return __namecall(self, unpack(args, 1, args.n))
                 end
+
+                -- hit bookkeeping: hitmarkers, hit logs, hit effect and damage
+                -- numbers all read from this single entry
+                if cheat.misc
+                    and (cheat.misc.hitmarkers or cheat.misc.hitlogs
+                        or cheat.misc.hit_effect or cheat.misc.damage_numbers)
+                then
+                    local hit_args = table.pack(...)
+                    local hit_part = hit_args[1]
+                    if typeof(hit_part) == "Instance" then
+                        local hit_model = hit_part:FindFirstAncestorOfClass("Model")
+                        local hit_humanoid = hit_model and hit_model:FindFirstChildOfClass("Humanoid")
+                        local hit_position = hit_part.Position
+                        if typeof(hit_args[2]) == "CFrame" then
+                            hit_position = (hit_part.CFrame * hit_args[2]).Position
+                        end
+                        if cheat.misc.hitmarkers then
+                            cheat.hitmarkers.spawn(hit_position)
+                        end
+                        if (cheat.misc.hitlogs or cheat.misc.hit_effect or cheat.misc.damage_numbers)
+                            and hit_humanoid
+                        then
+                            table.insert(cheat.hitlogs.pending, {
+                                name = hit_model.Name,
+                                humanoid = hit_humanoid,
+                                health_before = hit_humanoid.Health,
+                                hit_pos = hit_position,
+                                tick = os.clock(),
+                            })
+                        end
+                    end
+                end
             end
 
             if methodstr == "InvokeServer" and self.Name == "FireProjectile" then
@@ -3828,6 +7283,8 @@ if SaveManager then
     pcall(function() SaveManager:SetFolder('centhackV2') end)
     pcall(function() SaveManager:BuildConfigSection(ui.tabs.config) end)
     pcall(function() SaveManager:LoadAutoloadConfig() end)
+    -- the library saves the current config on every option change
+    Library.SaveManager = SaveManager
 end
 
 ----------------------------------------------------------------------
