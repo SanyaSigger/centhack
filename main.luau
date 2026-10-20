@@ -4011,6 +4011,7 @@ local misc_movement_box = ui.tabs.misc:AddLeftGroupbox('MOVEMENT')
 local misc_playermods_box = ui.tabs.misc:AddLeftGroupbox('PLAYER MODS')
 local misc_visuals_box = ui.tabs.misc:AddRightGroupbox('PLAYER VISUALS')
 local misc_extras_box = ui.tabs.misc:AddRightGroupbox('EXTRAS')
+local misc_desync_box = ui.tabs.misc:AddLeftGroupbox('DESYNC')
 
 -- MOVEMENT ------------------------------------------------------------------
 
@@ -4443,6 +4444,250 @@ misc_extras_box:AddButton('ex_set_avatar', function()
     end
     model:Destroy()
 end)
+
+----------------------------------------------------------------------
+-- DESYNC + FREECAM
+----------------------------------------------------------------------
+-- Ported from pin.reta V2. The desync moves the character root to the
+-- desynced position while the server replicates it and restores the
+-- original position right after the render step, so the client keeps
+-- aiming from the real position.
+
+local desync = {
+    enabled = false,
+    x = 0,
+    y = 0,
+    z = 0,
+    rx = 0,
+    ry = 0,
+    rz = 0,
+    random_rotation = false,
+    velocity = false,
+    vx = 0,
+    vy = 0,
+    vz = 0,
+    look_vector = false,
+    look_vector_mode = 'Up',
+    look_vector_pitch = 89,
+}
+
+misc_desync_box:AddToggle('desync_enabled', {
+    Text = 'desync enabled',
+    Default = false,
+    Callback = function(v)
+        desync.enabled = v
+    end,
+})
+
+misc_desync_box:AddSlider('desync_x', {
+    Text = 'x offset', Default = 0, Min = -10, Max = 10, Rounding = 1, Compact = true,
+    Callback = function(v) desync.x = v end,
+})
+
+misc_desync_box:AddSlider('desync_y', {
+    Text = 'y offset', Default = 0, Min = -10, Max = 10, Rounding = 1, Compact = true,
+    Callback = function(v) desync.y = v end,
+})
+
+misc_desync_box:AddSlider('desync_z', {
+    Text = 'z offset', Default = 0, Min = -10, Max = 10, Rounding = 1, Compact = true,
+    Callback = function(v) desync.z = v end,
+})
+
+misc_desync_box:AddSlider('desync_rx', {
+    Text = 'x rotate', Default = 0, Min = -90, Max = 90, Rounding = 1, Suffix = '°', Compact = true,
+    Callback = function(v) desync.rx = math.rad(v) end,
+})
+
+misc_desync_box:AddSlider('desync_ry', {
+    Text = 'y rotate', Default = 0, Min = -90, Max = 90, Rounding = 1, Suffix = '°', Compact = true,
+    Callback = function(v) desync.ry = math.rad(v) end,
+})
+
+misc_desync_box:AddSlider('desync_rz', {
+    Text = 'z rotate', Default = 0, Min = -90, Max = 90, Rounding = 1, Suffix = '°', Compact = true,
+    Callback = function(v) desync.rz = math.rad(v) end,
+})
+
+misc_desync_box:AddToggle('desync_random_rotation', {
+    Text = 'random rotation',
+    Default = false,
+    Callback = function(v) desync.random_rotation = v end,
+})
+
+misc_desync_box:AddToggle('desync_velocity', {
+    Text = 'velocity desync',
+    Default = false,
+    Callback = function(v) desync.velocity = v end,
+})
+
+misc_desync_box:AddSlider('desync_vx', {
+    Text = 'velocity x', Default = 0, Min = -500, Max = 500, Rounding = 0, Compact = true,
+    Callback = function(v) desync.vx = v end,
+})
+
+misc_desync_box:AddSlider('desync_vy', {
+    Text = 'velocity y', Default = 0, Min = -500, Max = 500, Rounding = 0, Compact = true,
+    Callback = function(v) desync.vy = v end,
+})
+
+misc_desync_box:AddSlider('desync_vz', {
+    Text = 'velocity z', Default = 0, Min = -500, Max = 500, Rounding = 0, Compact = true,
+    Callback = function(v) desync.vz = v end,
+})
+
+misc_desync_box:AddToggle('desync_look_vector', {
+    Text = 'look vector spoof',
+    Default = false,
+    Callback = function(v) desync.look_vector = v end,
+})
+
+misc_desync_box:AddDropdown('desync_look_vector_mode', {
+    Text = 'look vector mode',
+    Values = { 'Up', 'Down', 'Straight', 'Custom' },
+    Default = 1,
+    Multi = false,
+    Callback = function(v) desync.look_vector_mode = v end,
+})
+
+misc_desync_box:AddSlider('desync_look_vector_pitch', {
+    Text = 'custom pitch', Default = 89, Min = -89, Max = 89, Rounding = 0, Suffix = '°', Compact = true,
+    Callback = function(v) desync.look_vector_pitch = v end,
+})
+
+do
+    local function look_vector_pitch()
+        local mode = desync.look_vector_mode
+        if mode == 'Up' then return 1 end
+        if mode == 'Down' then return -1 end
+        if mode == 'Straight' then return 0 end
+        return math.clamp(desync.look_vector_pitch / 89, -1, 1)
+    end
+
+    local function send_tilt()
+        local remote = ReplicatedStorage:FindFirstChild("Remotes")
+            and ReplicatedStorage.Remotes:FindFirstChild("UpdateTilt")
+        if remote then
+            pcall(function() remote:FireServer(look_vector_pitch(), 0) end)
+        end
+    end
+
+    cheat.utility.track_connection(RunService.Heartbeat:Connect(function()
+        if not desync.look_vector then return end
+        send_tilt()
+    end))
+
+    cheat.utility.track_connection(RunService.Heartbeat:Connect(function()
+        if not desync.enabled then return end
+        local character = LocalPlayer.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
+        local old_cf = root.CFrame
+        local old_velocity = root.AssemblyLinearVelocity
+
+        local offset = CFrame.new(desync.x, desync.y, desync.z)
+            * CFrame.Angles(desync.rx, desync.ry, desync.rz)
+
+        if desync.random_rotation then
+            offset = offset * CFrame.Angles(
+                (math.random() - 0.5) * math.pi * 2,
+                (math.random() - 0.5) * math.pi * 2,
+                (math.random() - 0.5) * math.pi * 2
+            )
+        end
+
+        root.CFrame = old_cf * offset
+        if desync.velocity then
+            root.AssemblyLinearVelocity = Vector3.new(desync.vx, desync.vy, desync.vz)
+        end
+
+        RunService.RenderStepped:Wait()
+
+        if root and root.Parent then
+            root.CFrame = old_cf
+            if desync.velocity then
+                root.AssemblyLinearVelocity = old_velocity
+            end
+        end
+    end))
+end
+
+----------------------------------------------------------------------
+-- FREECAM
+----------------------------------------------------------------------
+
+local freecam = {
+    enabled = false,
+    speed = 50,
+    cf = nil,
+    pitch = 0,
+    yaw = 0,
+}
+
+misc_desync_box:AddToggle('freecam_enabled', {
+    Text = 'freecam',
+    Default = false,
+    Callback = function(v)
+        freecam.enabled = v
+        if v then
+            local camera = workspace.CurrentCamera
+            if not camera then return end
+            freecam.cf = camera.CFrame
+            local orientation = freecam.cf:ToOrientation()
+            freecam.pitch = orientation.X
+            freecam.yaw = orientation.Y
+            camera.CameraType = Enum.CameraType.Scriptable
+        else
+            local camera = workspace.CurrentCamera
+            if camera then camera.CameraType = Enum.CameraType.Custom end
+        end
+    end,
+})
+
+misc_desync_box:AddSlider('freecam_speed', {
+    Text = 'freecam speed', Default = 50, Min = 5, Max = 500, Rounding = 0, Compact = true,
+    Callback = function(v) freecam.speed = v end,
+})
+
+do
+    cheat.utility.new_renderstepped(function(dt)
+        if not freecam.enabled then return end
+        local camera = workspace.CurrentCamera
+        if not camera or not freecam.cf then return end
+
+        if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+            local delta = UserInputService:GetMouseDelta()
+            freecam.pitch = math.clamp(freecam.pitch - delta.Y * 0.005, -math.pi / 2 + 0.01, math.pi / 2 - 0.01)
+            freecam.yaw = freecam.yaw - delta.X * 0.005
+        end
+
+        local move = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + Vector3.new(0, 0, 1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move + Vector3.new(0, 0, -1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move + Vector3.new(-1, 0, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + Vector3.new(1, 0, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.E) or UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            move = move + Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Q) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            move = move + Vector3.new(0, -1, 0)
+        end
+
+        freecam.cf = CFrame.new(freecam.cf.Position)
+            * CFrame.Angles(0, freecam.yaw, 0)
+            * CFrame.Angles(freecam.pitch, 0, 0)
+
+        if move.Magnitude > 0 then
+            move = move.Unit
+            freecam.cf = freecam.cf + (freecam.cf.RightVector * move.X
+                + freecam.cf.UpVector * move.Y
+                + freecam.cf.LookVector * move.Z) * (freecam.speed * dt)
+        end
+
+        camera.CFrame = freecam.cf
+    end)
+end
 
 -- IMPLEMENTATION ------------------------------------------------------------
 
