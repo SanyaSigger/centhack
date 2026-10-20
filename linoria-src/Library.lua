@@ -1412,20 +1412,6 @@ do
 
         return Options[Idx];
     end;
-
-        Groupbox:AddBlank(5);
-        Groupbox:Resize();
-
-        return Options[Idx];
-    end;
-
-        Groupbox:AddBlank(5);
-        Groupbox:Resize();
-
-        Options[Idx] = ColorPicker;
-
-        return ColorPicker;
-    end;
     -- AddLabel(Text, DoesWrap?)
     -- AddLabel({ Text = '...', DoesWrap = bool, TextColor = Color3 })
     function Funcs:AddLabel(Text, DoesWrap)
