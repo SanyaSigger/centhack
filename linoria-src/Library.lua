@@ -181,8 +181,6 @@ function Library:CreateLabel(Properties, IsHud)
 end;
 
 function Library:MakeDraggable(Instance, Cutoff)
-    Instance.Active = true;
-
     Instance.InputBegan:Connect(function(Input)
         if Input.UserInputType == Enum.UserInputType.MouseButton1 then
             local ObjPos = Vector2.new(
@@ -3269,7 +3267,7 @@ function Library:CreateWindow(...)
             BackgroundTransparency = 1;
             BorderSizePixel = 0;
             Position = UDim2.new(0, 16, 0, 10);
-            Size = UDim2.new(0.5, -24, 0, 507 + 2);
+            Size = UDim2.new(0.5, -24, 1, -20);
             CanvasSize = UDim2.new(0, 0, 0, 0);
             BottomImage = '';
             TopImage = '';
@@ -3282,7 +3280,7 @@ function Library:CreateWindow(...)
             BackgroundTransparency = 1;
             BorderSizePixel = 0;
             Position = UDim2.new(0.5, 8, 0, 10);
-            Size = UDim2.new(0.5, -24, 0, 507 + 2);
+            Size = UDim2.new(0.5, -24, 1, -20);
             CanvasSize = UDim2.new(0, 0, 0, 0);
             BottomImage = '';
             TopImage = '';
@@ -3344,7 +3342,7 @@ function Library:CreateWindow(...)
                 BorderColor3 = Library.OutlineColor;
                 -- BorderMode = Enum.BorderMode.Inset;
                 Position = UDim2.new(0, 8, 0, 0);
-                Size = UDim2.new(1, -16, 0, 507 + 2);
+                Size = UDim2.new(1, -16, 1, 0);
                 ZIndex = 2;
                 Parent = Info.Side == 1 and LeftSide or RightSide;
             });

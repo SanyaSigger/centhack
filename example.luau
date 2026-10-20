@@ -173,6 +173,9 @@ local TabElements = Window:AddTab('Elements')
 
 local Left = TabElements:AddLeftGroupbox('Controls')
 
+-- Theme manager on the right side of Elements tab
+ThemeManager:ApplyToGroupbox(TabElements:AddRightGroupbox('Theme'))
+
 -- --- Toggle ----
 local AimbotToggle = Left:AddToggle('Example_Aimbot', {
     Text = 'Aimbot',
