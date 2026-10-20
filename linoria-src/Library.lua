@@ -3118,6 +3118,7 @@ function Library:CreateWindow(...)
 
     local Window = {
         Tabs = {};
+        _LastActiveTab = nil;
     };
     local Outer = Library:Create('Frame', {
         AnchorPoint = Config.AnchorPoint;
@@ -3319,7 +3320,36 @@ function Library:CreateWindow(...)
             Blocker.BackgroundTransparency = 0;
             TabButton.BackgroundColor3 = Library.MainColor;
             Library.RegistryMap[TabButton].Properties.BackgroundColor3 = 'MainColor';
+
+            -- Slide animation: slide in from side based on tab position
+            local RunService = game:GetService('RunService');
+            local prevTab = Window._LastActiveTab;
+            local dir = 1; -- default slide from right
+            if prevTab and prevTab ~= Tab then
+                if Tab.LayoutOrder < prevTab.LayoutOrder then
+                    dir = -1; -- slide from left
+                else
+                    dir = 1; -- slide from right
+                end
+            end
+
             TabFrame.Visible = true;
+            TabFrame.Position = UDim2.new(dir, 0, 0, 0);
+
+            local slideConn;
+            slideConn = RunService.Heartbeat:Connect(function()
+                local current = TabFrame.Position;
+                local target = UDim2.new(0, 0, 0, 0);
+                local diff = target - current;
+                local step = diff * 0.3;
+                TabFrame.Position = current + step;
+                if math.abs(diff.X.Offset) < 1 then
+                    TabFrame.Position = target;
+                    slideConn:Disconnect();
+                end
+            end);
+
+            Window._LastActiveTab = Tab;
         end;
 
         function Tab:HideTab()
