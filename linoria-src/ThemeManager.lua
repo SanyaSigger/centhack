@@ -150,14 +150,10 @@ local ThemeManager = {} do
 	end
 
 	function ThemeManager:CreateThemeManager(groupbox)
-		groupbox:AddLabel('Background color')
-		groupbox:AddColorPicker('BackgroundColor', { Default = self.Library.BackgroundColor });
-		groupbox:AddLabel('Main color')
-		groupbox:AddColorPicker('MainColor', { Default = self.Library.MainColor });
-		groupbox:AddLabel('Accent color 1')
-		groupbox:AddColorPicker('AccentColor1', { Default = self.Library.AccentColor1 });
-		groupbox:AddLabel('Accent color 2')
-		groupbox:AddColorPicker('AccentColor2', { Default = self.Library.AccentColor2 });
+		groupbox:AddLabel('Background color'):AddColorPicker('BackgroundColor', { Default = self.Library.BackgroundColor });
+		groupbox:AddLabel('Main color'):AddColorPicker('MainColor', { Default = self.Library.MainColor });
+		groupbox:AddLabel('Accent color 1'):AddColorPicker('AccentColor1', { Default = self.Library.AccentColor1 });
+		groupbox:AddLabel('Accent color 2'):AddColorPicker('AccentColor2', { Default = self.Library.AccentColor2 });
 		groupbox:AddToggle('ThemeManager_UseGradient', {
 			Text = 'Use accent gradient';
 			Default = not self.Library:ColorsEqual(self.Library.AccentColor1, self.Library.AccentColor2);
@@ -168,10 +164,8 @@ local ThemeManager = {} do
 			Values = {'Horizontal', 'Vertical' };
 			Default = self.Library.GradientDirection;
 		});
-		groupbox:AddLabel('Outline color')
-		groupbox:AddColorPicker('OutlineColor', { Default = self.Library.OutlineColor });
-		groupbox:AddLabel('Font color')
-		groupbox:AddColorPicker('FontColor', { Default = self.Library.FontColor });
+		groupbox:AddLabel('Outline color'):AddColorPicker('OutlineColor', { Default = self.Library.OutlineColor });
+		groupbox:AddLabel('Font color'):AddColorPicker('FontColor', { Default = self.Library.FontColor });
 
 
 
