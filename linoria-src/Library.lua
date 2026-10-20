@@ -3120,44 +3120,6 @@ function Library:Notify(Text, Time)
     end);
 end;
 
--- Creates a viewport (frame + camera + world model) that can be embedded in
--- the UI. The ESP preview uses this to show a character inside the menu.
-function Library:CreateViewport(Options)
-    Options = Options or {};
-
-    local Viewport = Library:Create('ViewportFrame', {
-        BackgroundColor3 = Library.BackgroundColor;
-        BorderSizePixel = 0;
-        Size = Options.Size or UDim2.fromOffset(220, 240);
-        ZIndex = 7;
-        Parent = Options.Parent;
-    });
-
-    Library:AddToRegistry(Viewport, {
-        BackgroundColor3 = 'BackgroundColor';
-    });
-
-    local World = Instance.new('WorldModel');
-    local Cam = Instance.new('Camera');
-    Cam.FieldOfView = 40;
-    Cam.Parent = Viewport;
-    Viewport.CurrentCamera = Cam;
-
-    -- the world model has to be bound to the viewport, otherwise nothing is
-    -- rendered inside the menu. ViewportFrame has no "World" property
-    -- anymore, the world model is parented to the viewport instead.
-    World.Parent = Viewport;
-    Viewport.Ambient = Color3.fromRGB(180, 180, 180);
-    Viewport.LightColor = Color3.fromRGB(255, 255, 255);
-    Viewport.LightDirection = Vector3.new(-1, -1, -1);
-
-    return {
-        Viewport = Viewport;
-        Camera = Cam;
-        World = World;
-    };
-end;
-
 function Library:CreateWindow(...)
     local Arguments = { ... }
     local Config = { AnchorPoint = Vector2.new(0, 0) }
