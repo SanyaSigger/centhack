@@ -171,9 +171,6 @@ local Window = Library:CreateWindow({
 
 local TabElements = Window:AddTab('Elements')
 
--- ThemeManager builds its own theme groupbox on the right of this tab.
-ThemeManager:ApplyToTab(TabElements)
-
 local Left = TabElements:AddLeftGroupbox('Controls')
 
 -- --- Toggle ----
@@ -501,7 +498,7 @@ ConfigGroup:AddDivider()
 SaveManager:LoadAutoloadConfig()
 
 task.defer(function()
-    ThemeManager:ApplyTheme('Tokyo Night')
+    ThemeManager:ApplyTheme('Default')
 end)
 
 ----------------------------------------------------------------------

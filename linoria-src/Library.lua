@@ -32,8 +32,8 @@ local Library = {
     FontColor = Color3.fromRGB(255, 255, 255);
     MainColor = Color3.fromRGB(28, 28, 28);
     BackgroundColor = Color3.fromRGB(20, 20, 20);
-    AccentColor1 = Color3.fromRGB(0, 85, 255);
-    AccentColor2 = Color3.fromRGB(190, 40, 240);
+    AccentColor1 = Color3.fromRGB(255, 255, 255);
+    AccentColor2 = Color3.fromRGB(255, 90, 160);
     UseGradient = true;
     GradientDirection = 'Horizontal';
     OutlineColor = Color3.fromRGB(50, 50, 50);
@@ -3148,10 +3148,9 @@ function Library:CreateWindow(...)
 
     Library:AddToRegistry(Main, {
         BackgroundColor3 = 'BackgroundColor';
-        BorderColor3 = 'OutlineColor';
     });
 
-    Library:MakeDraggable(Outer, 30);
+    Library:MakeDraggable(Outer, 26);
 
     local AccentLine = Library:Create('Frame', {
         BackgroundColor3 = Library.AccentColor1;
@@ -3168,11 +3167,11 @@ function Library:CreateWindow(...)
     });
 
     local WindowLabel = Library:CreateLabel({
-        Position = UDim2.new(0, 0, 0, 4);
-        Size = UDim2.new(1, 0, 0, 20);
+        Position = UDim2.new(0, 0, 0, 3);
+        Size = UDim2.new(1, 0, 0, 18);
         Text = Config.Title or '';
         TextXAlignment = Enum.TextXAlignment.Center;
-        TextSize = 12;
+        TextSize = 11;
         ZIndex = 3;
         Parent = Main;
     });
@@ -3183,8 +3182,8 @@ function Library:CreateWindow(...)
 
     local TabArea = Library:Create('Frame', {
         BackgroundTransparency = 1;
-        Position = UDim2.new(0, 8, 0, 28);
-        Size = UDim2.new(1, -16, 0, 22);
+        Position = UDim2.new(0, 8, 0, 23);
+        Size = UDim2.new(1, -16, 0, 20);
         ZIndex = 3;
         Parent = Main;
     });
@@ -3198,16 +3197,15 @@ function Library:CreateWindow(...)
 
     local TabContainer = Library:Create('Frame', {
         BackgroundColor3 = Library.MainColor;
-        BorderColor3 = Library.OutlineColor;
-        Position = UDim2.new(0, 8, 0, 54);
-        Size = UDim2.new(1, -16, 1, -60);
+        BorderSizePixel = 0;
+        Position = UDim2.new(0, 8, 0, 45);
+        Size = UDim2.new(1, -16, 1, -47);
         ZIndex = 3;
         Parent = Main;
     });
 
     Library:AddToRegistry(TabContainer, {
         BackgroundColor3 = 'MainColor';
-        BorderColor3 = 'OutlineColor';
     });
 
     function Window:SetWindowTitle(Title)

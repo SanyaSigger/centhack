@@ -34,8 +34,8 @@ local Toggles = getgenv().Toggles
 -- BASE THEME (gradient always on)
 ----------------------------------------------------------------------
 
-Library.AccentColor1 = Color3.fromRGB(0, 85, 255)
-Library.AccentColor2 = Color3.fromRGB(190, 40, 240)
+Library.AccentColor1 = Color3.fromRGB(255, 255, 255)
+Library.AccentColor2 = Color3.fromRGB(255, 90, 160)
 Library.UseGradient = true
 Library.FontName = 'Code'
 Library.FontSize = 14
