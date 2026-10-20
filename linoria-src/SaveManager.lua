@@ -139,14 +139,20 @@ function SaveManager:DecodeConfig(text)
 		return false, 'invalid config format';
 	end
 
+	-- Toggles/Options are published as globals by Library.lua
+	local T = getgenv().Toggles or {};
+	local O = getgenv().Options or {};
+
 	for idx, val in next, data do
-		local object = Toggles[idx] or Options[idx];
+		local object = T[idx] or O[idx];
 		if object then
-			DeserializeValue(object, val);
+			local ok, err = pcall(DeserializeValue, object, val);
+			if not ok then
+				warn('[SaveManager] Failed to deserialize ' .. tostring(idx) .. ': ' .. tostring(err));
+			end
 		end
 	end
 
-	Library:AttemptSave();
 	return true;
 end
 
