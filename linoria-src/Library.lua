@@ -1361,6 +1361,47 @@ do
             delegated = ok and Options[Idx] ~= nil;
         end;
 
+    -- AddKeyPicker(Idx, Info)
+    function Funcs:AddKeyPicker(Idx, Info)
+        local Groupbox = self;
+        local Container = Groupbox.Container;
+
+        assert(Info.Default, 'AddKeyPicker: Missing default value.');
+
+        -- Create a label to attach the key picker to
+        local Label = Groupbox:AddLabel(Info.Text or 'Keybind');
+
+        -- Call first Funcs.AddKeyPicker directly on Label
+        -- This creates a proper KeyPicker object and stores it in Options[Idx]
+        local mt = getmetatable(Label);
+        if mt and mt.__index and mt.__index.AddKeyPicker then
+            local ok = pcall(mt.__index.AddKeyPicker, Label, Idx, Info);
+        end;
+
+        -- Ensure Options[Idx] exists
+        if not Options[Idx] then
+            Options[Idx] = {
+                Value = Info.Default;
+                Toggled = false;
+                Type = 'KeyPicker';
+                Callback = Info.Callback or function() end;
+            };
+        end;
+
+        -- Ensure OnChanged exists
+        if Options[Idx] and not Options[Idx].OnChanged then
+            Options[Idx].OnChanged = function(self, Callback)
+                self.Changed = Callback;
+                if Callback then Callback(self.Value) end;
+            end;
+        end;
+
+        Groupbox:AddBlank(5);
+        Groupbox:Resize();
+
+        return Options[Idx];
+    end;
+
         -- Ensure Options[Idx] exists with a proper ColorPicker object
         if not Options[Idx] then
             Options[Idx] = {
