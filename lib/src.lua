@@ -213,6 +213,16 @@ local drawing = {} do
     local scrollpositions = {}
     local currentcanvasposobjs = {}
     local childrenposupdates = {}
+
+    -- the internals are exported at the end of the file, they are used to
+    -- check the layout of the menu
+    library_internals = {
+        objchildren = objchildren,
+        objmts = objmts,
+        mtobjs = mtobjs,
+        listcontents = listcontents,
+        listchildren = listchildren,
+    }
     local childrenvisupdates = {}
     local squares = {}
     local objsignals = {}
@@ -371,6 +381,9 @@ local drawing = {} do
                     -- scroll offset is only the difference to it.
                     local SCROLL_STEP = 34
 
+                    -- The children of a list are placed at the position of the
+                    -- list plus their index, the same way the list layout does
+                    -- it, only the scroll offset is taken out of it.
                     local function apply_scroll(self, offset)
                         for i, object in next, listchildren[self] do
                             local base = listindexes[self][i] or 0
@@ -1118,16 +1131,6 @@ end
 
 function utility.create(class, properties)
     local obj = drawing:new(class)
-
-    -- The properties are applied in a random order, so an element could be
-    -- parented before it has its size. The list layout would then measure it
-    -- with the size 0 and every element of a section would overlap the next
-    -- one. The size is applied first so the layout is always correct.
-    if properties and properties.Size then
-        obj.Size = properties.Size
-        properties = table.clone(properties)
-        properties.Size = nil
-    end
 
     for prop, v in next, properties do
         if prop == "Theme" then
@@ -3774,5 +3777,6 @@ function library:Load(options)
 end
 
 library.setters = flags
+library.internal = library_internals
 
 return library
