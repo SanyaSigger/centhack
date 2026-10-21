@@ -245,6 +245,9 @@ local function load_void()
         error("centhack: could not download the ui library")
     end
     source = source:gsub("Drawing%.Fonts%.Plex", "(Drawing.Fonts.Plex or Drawing.Fonts.Code)")
+    -- the color picker reads the color channels in lower case, a Color3 only
+    -- has R, G and B
+    source = source:gsub("hsv%.r", "hsv.R"):gsub("hsv%.g", "hsv.G"):gsub("hsv%.b", "hsv.B")
     local chunk, err = loadstring(source, "void")
     if not chunk then
         error("centhack: could not compile the ui library: " .. tostring(err))
@@ -287,6 +290,7 @@ silent_aim = {
     manipulation = false,
     manipulation_max_offset = 30,
     manipulation_multiscan = true,
+    manipulation_underground = false,
     manipulation_parts = { "Head", "UpperTorso", "RightUpperArm", "LeftUpperArm", "RightLowerLeg", "LeftUpperLeg" },
     manipulated = false,
     manipulated_origin = nil,
@@ -1249,11 +1253,36 @@ local _manipulation_outer_directions = {
     Vector3.new(0, 1, 1).Unit, Vector3.new(0, 1, -1).Unit,
 }
 
+local _manipulation_underground_offsets = {
+    Vector3.new(0, -8, 0),
+    Vector3.new(3, -8, 0), Vector3.new(-3, -8, 0),
+    Vector3.new(6, -8, 0), Vector3.new(-6, -8, 0),
+    Vector3.new(4, -8, 2), Vector3.new(-4, -8, -2),
+    Vector3.new(4, -8, 4), Vector3.new(-4, -8, -4),
+    Vector3.new(1, -8, 3), Vector3.new(-1, -8, -3),
+    Vector3.new(0, -10, 0),
+    Vector3.new(3, -10, 0), Vector3.new(-3, -10, 0),
+    Vector3.new(6, -10, 0), Vector3.new(-6, -10, 0),
+    Vector3.new(5, -10, 3), Vector3.new(-5, -10, -3),
+    Vector3.new(2, -10, 0), Vector3.new(-2, -10, 0),
+    Vector3.new(0, -12, 0),
+    Vector3.new(3, -12, 0), Vector3.new(-3, -12, 0),
+    Vector3.new(6, -12, 0), Vector3.new(-6, -12, 0),
+    Vector3.new(4, -12, 2), Vector3.new(-4, -12, -2),
+    Vector3.new(7, -12, 0), Vector3.new(-7, -12, 0),
+}
+
+local _manipulation_underground_directions = {
+    Vector3.new(0, -1, 0),
+    Vector3.new(1, -1, 0).Unit, Vector3.new(-1, -1, 0).Unit,
+    Vector3.new(0, -1, 1).Unit, Vector3.new(0, -1, -1).Unit,
+}
+
 local _manipulation_cache = { key = nil, points = nil }
 
-local function get_manipulation_points(max_offset)
+local function get_manipulation_points(max_offset, underground)
     max_offset = math.clamp(math.floor(tonumber(max_offset) or 30), 1, 50)
-    local key = tostring(max_offset)
+    local key = string.format("%d:%s", max_offset, underground and "ug" or "normal")
     if _manipulation_cache.key == key and _manipulation_cache.points then
         return _manipulation_cache.points
     end
@@ -1283,6 +1312,17 @@ local function get_manipulation_points(max_offset)
             end
         end
     end
+    if underground then
+        add(_manipulation_underground_offsets, scale)
+        for _, radius in ipairs(_manipulation_outer_radii) do
+            local scaled_radius = radius * scale
+            if radius >= 15 and scaled_radius <= max_offset + 0.001 then
+                for _, direction in ipairs(_manipulation_underground_directions) do
+                    add({ direction * scaled_radius })
+                end
+            end
+        end
+    end
 
     table.sort(sortable, function(a, b)
         if math.abs(a.distance - b.distance) <= 0.0001 then
@@ -1304,7 +1344,18 @@ end
 local function get_manipulation_parts(character, primary_part)
     local result = {}
     if silent_aim.manipulation_multiscan and character then
-        for _, part_name in ipairs(silent_aim.manipulation_parts) do
+        local selected = silent_aim.manipulation_parts
+        local names = {}
+        if type(selected) == "table" then
+            for key, value in pairs(selected) do
+                if type(key) == "number" and type(value) == "string" then
+                    names[#names + 1] = value
+                elseif value == true and type(key) == "string" then
+                    names[#names + 1] = key
+                end
+            end
+        end
+        for _, part_name in ipairs(names) do
             local part = character:FindFirstChild(part_name, true)
             if part and part:IsA("BasePart") then
                 result[#result + 1] = part
@@ -1354,7 +1405,8 @@ local function find_manipulation_origin(shoot_origin, primary_part)
     _manipulation_params.FilterDescendantsInstances = filter
 
     local scan_parts = get_manipulation_parts(character, primary_part)
-    local points = get_manipulation_points(silent_aim.manipulation_max_offset)
+    local points = get_manipulation_points(
+        silent_aim.manipulation_max_offset, silent_aim.manipulation_underground == true)
 
     for _, offset in ipairs(points) do
         local candidate = shoot_origin + offset
@@ -3415,6 +3467,32 @@ rage_section:Slider({
     end,
 })
 
+rage_section:Dropdown({
+    name = "scan parts",
+    content = {
+        "Head", "UpperTorso", "RightUpperArm", "LeftUpperArm",
+        "RightLowerLeg", "LeftUpperLeg",
+    },
+    max = 6,
+    default = {
+        "Head", "UpperTorso", "RightUpperArm", "LeftUpperArm",
+        "RightLowerLeg", "LeftUpperLeg",
+    },
+    flag = "manipulate_parts",
+    callback = function(v)
+        silent_aim.manipulation_parts = v
+    end,
+})
+
+rage_section:Toggle({
+    name = "auto ug",
+    default = false,
+    flag = "manipulate_underground",
+    callback = function(v)
+        silent_aim.manipulation_underground = v
+    end,
+})
+
 rage_section:Toggle({
     name = "underground resolver",
     default = false,
@@ -4177,6 +4255,12 @@ cheat.utility.new_renderstepped(function()
         ug_resolver.holding = ok and holding or false
     end
 end)
+
+-- the overlays are exposed so they can be reached from the console
+cheat.modules = {
+    item_finder = item_finder,
+    inventory_checker = inventory_checker,
+}
 
 -- the esp needs the players and the corpses
 pcall(esp.load)
