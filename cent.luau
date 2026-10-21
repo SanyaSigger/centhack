@@ -48,6 +48,7 @@ local UserInputService = game:GetService("UserInputService")
 local Debris = game:GetService("Debris")
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
+local GuiInset = game:GetService("GuiService"):GetGuiInset()
 local Camera = Workspace.CurrentCamera
 
 local _CFramenew = CFrame.new
@@ -288,8 +289,8 @@ end))
 
 local window = library:Load({
     name = "CentHackV2",
-    sizex = 660,
-    sizey = 1000,
+    sizex = 640,
+    sizey = 700,
     folder = "centhackV2",
     extension = "cfg",
 })
@@ -399,790 +400,318 @@ misc = {
     hitmarker_lifetime = 0.7,
     remove_muzzle_flash = false,
 }
-----------------------------------------------------------------------
+------------------------------------------------------------------------
 -- ESP
 ----------------------------------------------------------------------
--- Ported from skid/wh.lua. One renderer is shared by the player and the npc
--- module, the corpse module draws its own label. Every element has its own
--- colour and transparency.
+-- A small, self written player and corpse esp. Every player gets a 2d box
+-- that is built from the head and the root part, so it always fits the
+-- character no matter how it is posed.
 
 esp = {} do
-    local loaded = {}
-    local container
-    do
-        local ok, coregui = pcall(game.GetService, game, "CoreGui")
-        local parent = (ok and coregui and coregui:FindFirstChild("RobloxGui"))
-            or LocalPlayer:WaitForChild("PlayerGui")
-        container = Instance.new("Folder", parent)
-        container.Name = "centhack_esp"
-    end
-
-    esp.main_settings = {
-        textSize = 13,
-        textFont = Drawing.Fonts.Monospace,
-        infiniterange = false,
-    }
+    local targets = {}
+    local corpses = {}
 
     esp.settings = {
-        enemy = {
+        players = {
             enabled = false,
-            box = false,
-            box_fill = false,
-            box_outline = false,
-            name = false,
-            name_outline = false,
-            displayname = false,
-            displayname_outline = false,
-            health = false,
-            dist = false,
-            dist_outline = false,
-            weapon = false,
-            weapon_outline = false,
+            box = true,
+            box_color = Color3.new(1, 1, 1),
+            box_thickness = 1,
+            name = true,
+            name_color = Color3.new(1, 1, 1),
+            distance = true,
+            distance_color = Color3.new(1, 1, 1),
+            health = true,
+            health_color = Color3.new(0, 1, 0),
             skeleton = false,
-            chams = false,
-            chams_visible_only = false,
-            chams_material = "Neon",
-            high_kd_marker = false,
-            high_kd_outline_color = Color3.fromRGB(255, 0, 0),
-            box_color = { Color3.new(1, 1, 1), 1 },
-            box_fill_color = { Color3.new(1, 0, 0), 0.5 },
-            box_outline_color = { Color3.new(), 1 },
-            name_color = { Color3.new(1, 1, 1), 1 },
-            name_outline_color = Color3.new(),
-            displayname_color = { Color3.new(1, 1, 1), 1 },
-            displayname_outline_color = Color3.new(),
-            dist_color = { Color3.new(1, 1, 1), 1 },
-            dist_outline_color = Color3.new(),
-            weapon_color = { Color3.new(1, 1, 1), 1 },
-            weapon_outline_color = Color3.new(),
-            skeleton_color = { Color3.new(1, 1, 1), 1 },
-            health_color_top = Color3.new(0, 1, 0),
-            health_color_bottom = Color3.new(1, 0, 0),
-            health_thickness = 2,
-            health_glow_size = 5,
-            -- the "visible" variants only use their color when the target is
-            -- actually visible
-            box_outline_vis = false,
-            name_outline_vis = false,
-            displayname_outline_vis = false,
-            dist_outline_vis = false,
-            weapon_outline_vis = false,
-            box_outline_vis_color = { Color3.new(), 1 },
-            name_outline_vis_color = Color3.new(),
-            displayname_outline_vis_color = Color3.new(),
-            dist_outline_vis_color = Color3.new(),
-            weapon_outline_vis_color = Color3.new(),
-            chams_fill_color = { Color3.new(1, 1, 1), 0.5 },
-            chams_outline_color = { Color3.new(1, 1, 1), 0 },
+            skeleton_color = Color3.new(1, 1, 1),
+            max_distance = 0,          -- 0 = no limit
         },
         corpse = {
             enabled = false,
             name = true,
             distance = false,
             color = Color3.fromRGB(0, 255, 0),
-            outline = false,
-            outline_color = Color3.new(),
         },
     }
 
-    local VERTICES = {
-        Vector3.new(-1, -1, -1), Vector3.new(-1, -1, 1),
-        Vector3.new(-1, 1, -1), Vector3.new(-1, 1, 1),
-        Vector3.new(1, -1, -1), Vector3.new(1, -1, 1),
-        Vector3.new(1, 1, -1), Vector3.new(1, 1, 1),
+    local SKELETON_BONES = {
+        { "Head", "UpperTorso" },
+        { "UpperTorso", "LowerTorso" },
+        { "UpperTorso", "LeftUpperArm" },
+        { "LeftUpperArm", "LeftLowerArm" },
+        { "UpperTorso", "RightUpperArm" },
+        { "RightUpperArm", "RightLowerArm" },
+        { "LowerTorso", "LeftUpperLeg" },
+        { "LeftUpperLeg", "LeftLowerLeg" },
+        { "LowerTorso", "RightUpperLeg" },
+        { "RightUpperLeg", "RightLowerLeg" },
     }
-
-    -- child -> parent, the skeleton is drawn along these connections
-    local skeleton_order = {
-        Head = "UpperTorso",
-        UpperTorso = "LowerTorso",
-        LowerTorso = "HumanoidRootPart",
-        LeftUpperArm = "UpperTorso",
-        LeftLowerArm = "LeftUpperArm",
-        RightUpperArm = "UpperTorso",
-        RightLowerArm = "RightUpperArm",
-        LeftUpperLeg = "LowerTorso",
-        LeftLowerLeg = "LeftUpperLeg",
-        RightUpperLeg = "LowerTorso",
-        RightLowerLeg = "RightUpperLeg",
-    }
-
-    local function create_obj(kind, args)
-        local obj = Drawing.new(kind)
-        for i, v in args do
-            obj[i] = v
-        end
-        return obj
-    end
-
-    local function is_body_part(name)
-        return name == "Head" or name:find("Torso") or name:find("Leg")
-            or name:find("Arm") or name:find("Mi24") or name:find("Prop_")
-            or name:find("Hull") or name:find("BTR") or name:find("Pilot")
-    end
-
-    local function get_bounding_box(parts)
-        local min, max
-        for i = 1, #parts do
-            local part = parts[i]
-            local cframe, size = part.CFrame, part.Size
-            local low = (cframe - size * 0.5).Position
-            local high = (cframe + size * 0.5).Position
-            min = min and Vector3.new(math.min(min.X, low.X), math.min(min.Y, low.Y), math.min(min.Z, low.Z)) or low
-            max = max and Vector3.new(math.max(max.X, high.X), math.max(max.Y, high.Y), math.max(max.Z, high.Z)) or high
-        end
-        if not min then return nil end
-        local center = (min + max) * 0.5
-        local front = _Vector3new(center.X, center.Y, max.Z)
-        return _CFramenew(center, front), max - min
-    end
 
     local function world_to_screen(position)
         local camera = Workspace.CurrentCamera
-        if not camera then return _Vector2new(0, 0), false, 0 end
-        local screen, in_bounds = camera:WorldToViewportPoint(position)
-        return _Vector2new(screen.X, screen.Y), in_bounds, screen.Z
+        if not camera then return nil, false end
+        local screen, on_screen = camera:WorldToViewportPoint(position)
+        return screen, on_screen
     end
 
-    local function calculate_corners(cframe, size)
-        local corners = {}
-        for i = 1, #VERTICES do
-            local pos = world_to_screen((cframe + size * 0.5 * VERTICES[i]).Position)
-            corners[i] = pos
-        end
-        local minx, miny = math.huge, math.huge
-        local maxx, maxy = -math.huge, -math.huge
-        for i = 1, #corners do
-            local v = corners[i]
-            minx = math.min(minx, v.X)
-            miny = math.min(miny, v.Y)
-            maxx = math.max(maxx, v.X)
-            maxy = math.max(maxy, v.Y)
-        end
-        return {
-            corners = corners,
-            topLeft = _Vector2new(mathfloor(minx), mathfloor(miny)),
-            bottomRight = _Vector2new(mathfloor(maxx), mathfloor(maxy)),
-        }
-    end
-
-    local function get_gun(player)
-        local rep = _FindFirstChild(ReplicatedStorage.Players, player.Name)
-        if rep and _FindFirstChild(rep, "Status") and _FindFirstChild(rep.Status, "GameplayVariables")
-            and _FindFirstChild(rep.Status.GameplayVariables, "EquippedTool")
-            and rep.Status.GameplayVariables.EquippedTool.Value
-        then
-            return tostring(rep.Status.GameplayVariables.EquippedTool.Value)
-        end
-        return "None"
-    end
-    esp.get_gun = get_gun
-
-    ------------------------------------------------------------------
-    -- per element drawing
-    ------------------------------------------------------------------
-
-    -- the outline color of an element, the "visible" variant wins when the
-    -- target can be seen
-    local function outline_color(settings, key, vis_key, entry)
-        if settings[vis_key] and entry.is_vis then
-            return settings[vis_key .. "_color"][1], settings[vis_key .. "_color"][2]
-        end
-        return settings[key][1], settings[key][2]
-    end
-
-    local function draw_box(entry, corners, settings)
-        local obj = entry.obj
-        if settings.box or settings.box_fill or settings.box_outline then
-            local pos = corners.topLeft
-            local size = corners.bottomRight - corners.topLeft
-            obj.box.Position = pos
-            obj.box.Size = size
-            obj.box.Visible = settings.box
-            obj.box_fill.Position = pos
-            obj.box_fill.Size = size
-            obj.box_fill.Visible = settings.box_fill
-            obj.box_outline.Position = pos - _Vector2new(1, 1)
-            obj.box_outline.Size = size + _Vector2new(2, 2)
-            obj.box_outline.Visible = settings.box_outline
-            if entry.cheater then
-                obj.box_outline.Color = settings.high_kd_outline_color
-                obj.box_outline.Transparency = 1
-            else
-                local color, transparency = outline_color(
-                    settings, "box_outline_color", "box_outline_vis", entry)
-                obj.box_outline.Color = color
-                obj.box_outline.Transparency = transparency
-            end
-        else
-            obj.box.Visible = false
-            obj.box_fill.Visible = false
-            obj.box_outline.Visible = false
-        end
-    end
-
-    local function draw_names(entry, corners, settings)
-        local obj = entry.obj
-        local top = corners.topLeft
-        if settings.name then
-            obj.name.Position = _Vector2new(top.X + 1, top.Y - 16)
-            obj.name.Visible = true
-            obj.name.Outline = settings.name_outline
-            local color = settings.name_outline_vis and entry.is_vis
-                and settings.name_outline_vis_color or settings.name_outline_color
-            obj.name.OutlineColor = color
-        else
-            obj.name.Visible = false
-        end
-        if settings.displayname then
-            obj.displayname.Position = _Vector2new(top.X + 1, top.Y - 30)
-            obj.displayname.Visible = true
-            obj.displayname.Outline = settings.displayname_outline
-            local color = settings.displayname_outline_vis and entry.is_vis
-                and settings.displayname_outline_vis_color or settings.displayname_outline_color
-            obj.displayname.OutlineColor = color
-        else
-            obj.displayname.Visible = false
-        end
-    end
-
-    local function draw_distance(entry, corners, settings, distance)
-        local obj = entry.obj
-        if settings.dist then
-            obj.dist.Text = string.format("[%d]", distance)
-            obj.dist.Position = _Vector2new(corners.bottomRight.X + 4, corners.topLeft.Y - 6)
-            obj.dist.Visible = true
-            obj.dist.Outline = settings.dist_outline
-            local color = settings.dist_outline_vis and entry.is_vis
-                and settings.dist_outline_vis_color or settings.dist_outline_color
-            obj.dist.OutlineColor = color
-        else
-            obj.dist.Visible = false
-        end
-    end
-
-    local function draw_weapon(entry, corners, settings, weapon)
-        local obj = entry.obj
-        if settings.weapon then
-            obj.weapon.Text = weapon
-            obj.weapon.Position = _Vector2new(corners.bottomRight.X + 4, corners.bottomRight.Y + 2)
-            obj.weapon.Visible = true
-            obj.weapon.Outline = settings.weapon_outline
-            local color = settings.weapon_outline_vis and entry.is_vis
-                and settings.weapon_outline_vis_color or settings.weapon_outline_color
-            obj.weapon.OutlineColor = color
-        else
-            obj.weapon.Visible = false
-        end
-    end
-
-    local function draw_health(entry, corners, settings, health, max_health)
-        local obj = entry.obj
-        if not settings.health then
-            for i = 1, 10 do obj["health_bar_" .. i].Visible = false end
-            for i = 1, 6 do
-                obj["health_bar_glow_" .. i].Visible = false
-                obj["health_bar_glow_cap_top_" .. i].Visible = false
-                obj["health_bar_glow_cap_bottom_" .. i].Visible = false
-            end
-            return
-        end
-
-        local percent = math.clamp(health / (max_health or 100), 0, 1)
-        local bar_start = corners.bottomLeft - _Vector2new(6, 0)
-        local bar_end = corners.topLeft - _Vector2new(6, 0)
-        local glow = settings.health_glow_size
-
-        for i = 1, 10 do
-            local line = obj["health_bar_" .. i]
-            local seg = (i - 1) / 10
-            local a = bar_start + (bar_end - bar_start) * seg
-            local b = bar_start + (bar_end - bar_start) * ((i) / 10)
-            -- the bar is filled from the bottom up to the health percentage
-            if seg < percent then
-                line.From = a
-                line.To = b
-                line.Visible = true
-                line.Color = settings.health_color_bottom:Lerp(settings.health_color_top, seg / math.max(percent, 0.0001))
-            else
-                line.Visible = false
-            end
-        end
-
-        for i = 1, 6 do
-            obj["health_bar_glow_" .. i].Visible = false
-            obj["health_bar_glow_cap_top_" .. i].Visible = false
-            obj["health_bar_glow_cap_bottom_" .. i].Visible = false
-        end
-
-        -- the glow is a thick transparent line behind the bar
-        if percent > 0 then
-            local filled_top = bar_start + (bar_end - bar_start) * percent
-            local glow_line = obj["health_bar_glow_1"]
-            glow_line.From = bar_start
-            glow_line.To = filled_top
-            glow_line.Visible = true
-            glow_line.Color = settings.health_color_bottom:Lerp(settings.health_color_top, percent)
-            glow_line.Thickness = settings.health_thickness + glow
-            for i = 2, 6 do
-                obj["health_bar_glow_" .. i].Visible = false
-            end
-        end
-    end
-
-    local function draw_skeleton(entry, character, settings)
-        local obj = entry.obj
-        local skel = entry.skel_parts
-        if not settings.skeleton or not skel then
-            for name in pairs(skeleton_order) do
-                local line = obj["skeleton_" .. name]
-                if line then line.Visible = false end
-            end
-            return
-        end
-        for name, parent_name in pairs(skeleton_order) do
-            local line = obj["skeleton_" .. name]
-            if line then
-                local part = skel[name]
-                local parent = skel[parent_name]
-                if part and parent then
-                    local a, a_on = world_to_screen(part.Position)
-                    local b, b_on = world_to_screen(parent.Position)
-                    line.From = a
-                    line.To = b
-                    line.Visible = a_on and b_on
-                    line.Color = settings.skeleton_color[1]
-                    line.Transparency = settings.skeleton_color[2]
-                else
-                    line.Visible = false
-                end
-            end
-        end
-    end
-
-    local function update_chams(entry, character, settings)
-        local highlight = entry.chams_object
-        if not highlight then return end
-        highlight.Adornee = character
-        highlight.Enabled = settings.chams
-        highlight.DepthMode = settings.chams_visible_only and 1 or 0
-        highlight.FillColor = settings.chams_fill_color[1]
-        highlight.FillTransparency = settings.chams_fill_color[2]
-        highlight.OutlineColor = settings.chams_outline_color[1]
-        highlight.OutlineTransparency = settings.chams_outline_color[2]
-
-        if settings.chams then
-            if os.clock() - entry.last_chams_update >= 2 then
-                entry.chams_active = true
-                for _, part in pairs(character:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        if not entry.chams_original[part] then
-                            entry.chams_original[part] = {
-                                Material = part.Material,
-                                Color = part.Color,
-                                Transparency = part.Transparency,
-                            }
-                        end
-                        part.Material = Enum.Material[settings.chams_material or "Neon"] or Enum.Material.Neon
-                        part.Color = settings.chams_fill_color[1]
-                        part.Transparency = 0
-                        local sa = part:FindFirstChildOfClass("SurfaceAppearance")
-                        if sa then sa:Destroy() end
-                    end
-                end
-                entry.last_chams_update = os.clock()
-            end
-        elseif entry.chams_active then
-            entry.chams_active = false
-            for part, original in pairs(entry.chams_original) do
-                pcall(function()
-                    part.Material = original.Material
-                    part.Color = original.Color
-                    part.Transparency = original.Transparency
-                end)
-            end
-            entry.chams_original = {}
-        end
-    end
-
-    ------------------------------------------------------------------
-    -- player / npc target
-    ------------------------------------------------------------------
-
-    local function create_esp(player, isnpc)
-        if not player then return end
-        if player.ClassName == "Model" then isnpc = true end
-
+    local function create_player_target(player)
         local obj = {
-            box_fill = create_obj("Square", { Filled = true, Visible = false }),
-            box_outline = create_obj("Square", { Filled = false, Thickness = 3, Visible = false, ZIndex = -1 }),
-            box = create_obj("Square", { Filled = false, Thickness = 1, Visible = false }),
-            name = create_obj("Text", { Center = true, Visible = false, Text = player.Name }),
-            displayname = create_obj("Text", { Center = true, Visible = false }),
-            dist = create_obj("Text", { Center = true, Visible = false }),
-            weapon = create_obj("Text", { Center = true, Visible = false }),
+            box = Drawing.new("Square"),
+            name = Drawing.new("Text"),
+            distance = Drawing.new("Text"),
+            health_bg = Drawing.new("Square"),
+            health = Drawing.new("Square"),
         }
-        for required in pairs(skeleton_order) do
-            obj["skeleton_" .. required] = create_obj("Line", { Visible = false })
-        end
-        for i = 1, 10 do
-            obj["health_bar_" .. i] = create_obj("Line", { Visible = false, Thickness = 2, ZIndex = 2 })
-        end
-        for i = 1, 6 do
-            obj["health_bar_glow_" .. i] = create_obj("Line", { Visible = false, ZIndex = 1 })
-            obj["health_bar_glow_cap_top_" .. i] = create_obj("Circle", { Visible = false, Filled = true, ZIndex = 1 })
-            obj["health_bar_glow_cap_bottom_" .. i] = create_obj("Circle", { Visible = false, Filled = true, ZIndex = 1 })
+        obj.box.Visible = false
+        obj.box.Filled = false
+        obj.name.Visible = false
+        obj.name.Center = true
+        obj.name.Outline = true
+        obj.distance.Visible = false
+        obj.distance.Center = true
+        obj.distance.Outline = true
+        obj.health_bg.Visible = false
+        obj.health_bg.Filled = true
+        obj.health_bg.Transparency = 0.4
+        obj.health.Visible = false
+        obj.health.Filled = true
+
+        local skeleton = {}
+        for i = 1, #SKELETON_BONES do
+            local line = Drawing.new("Line")
+            line.Visible = false
+            skeleton[i] = line
         end
 
-        local entry = {
-            obj = obj,
-            chams_object = Instance.new("Highlight", container),
-            chams_active = false,
-            chams_original = {},
-            last_chams_update = 0,
-            plr_instance = player,
-            skel_parts = nil,
-            last_gun = nil,
-            last_gun_time = 0,
-            last_health = nil,
-            cheater = false,
-            is_vis = false,
-            last_vis_check = 0,
-        }
+        local entry = { obj = obj, skeleton = skeleton, player = player }
 
-        local settings = esp.settings.enemy
-        local main_settings = esp.main_settings
-
-        local function apply_settings()
-            obj.box.Color = settings.box_color[1]
-            obj.box.Transparency = settings.box_color[2]
-            obj.box_fill.Color = settings.box_fill_color[1]
-            obj.box_fill.Transparency = settings.box_fill_color[2]
-            obj.box_outline.Color = settings.box_outline_color[1]
-            obj.box_outline.Transparency = settings.box_outline_color[2]
-            for _, key in ipairs({ "name", "displayname", "dist", "weapon" }) do
-                local text = obj[key]
-                text.Size = main_settings.textSize
-                text.Font = main_settings.textFont
-                text.Outline = false
-                text.OutlineColor = Color3.new(0, 0, 0)
-                text.Color = Color3.new(1, 1, 1)
-                text.Transparency = 1
-            end
-            obj.name.Color = settings.name_color[1]
-            obj.name.Transparency = settings.name_color[2]
-            obj.displayname.Color = settings.displayname_color[1]
-            obj.displayname.Transparency = settings.displayname_color[2]
-            obj.dist.Color = settings.dist_color[1]
-            obj.dist.Transparency = settings.dist_color[2]
-            obj.weapon.Color = settings.weapon_color[1]
-            obj.weapon.Transparency = settings.weapon_color[2]
+        local function hide()
+            obj.box.Visible = false
+            obj.name.Visible = false
+            obj.distance.Visible = false
+            obj.health_bg.Visible = false
+            obj.health.Visible = false
+            for i = 1, #skeleton do skeleton[i].Visible = false end
         end
-        apply_settings()
-        entry.forceupdate = apply_settings
+        entry.hide = hide
 
         entry.connection = cheat.utility.new_renderstepped(function()
+            local settings = esp.settings.players
             if not settings.enabled then
-                for _, v in pairs(obj) do v.Visible = false end
+                hide()
                 return
             end
 
             local character = player.Character
             if not character then
-                for _, v in pairs(obj) do v.Visible = false end
-                if main_settings.infiniterange then
-                    local rep = _FindFirstChild(ReplicatedStorage.Players, player.Name)
-                    local pos = rep and _FindFirstChild(rep, "Status") and _FindFirstChild(rep.Status, "UAC")
-                        and rep.Status.UAC:FindFirstChild("LastVerifiedPos")
-                    if pos and pos.Value then
-                        local screen, onscreen = world_to_screen(pos.Value)
-                        if onscreen then
-                            local distance = mathfloor((Camera.CFrame.Position - pos.Value).Magnitude / 3)
-                            obj.name.Text = string.format("%s [%d]", player.Name, distance)
-                            obj.name.Position = screen
-                            obj.name.Visible = true
-                            obj.displayname.Visible = false
-                            obj.dist.Visible = false
-                            obj.weapon.Visible = false
-                            obj.box.Visible = false
-                            obj.box_fill.Visible = false
-                            obj.box_outline.Visible = false
-                        end
-                    end
-                end
+                hide()
                 return
             end
 
             local head = character:FindFirstChild("Head")
+            local root = character:FindFirstChild("HumanoidRootPart")
             local humanoid = character:FindFirstChildOfClass("Humanoid")
-            if not head or not humanoid then
-                for _, v in pairs(obj) do v.Visible = false end
+            if not (head and root and humanoid) or humanoid.Health <= 0 then
+                hide()
                 return
             end
 
-            local _, onscreen = world_to_screen(head.Position)
-            if not onscreen then
-                for _, v in pairs(obj) do v.Visible = false end
+            local camera = Workspace.CurrentCamera
+            if not camera then
+                hide()
                 return
             end
 
-            local health = humanoid.Health
-            if entry.last_health and health < entry.last_health then
-                if cheat.utility.last_hitmarker_tick
-                    and (tick() - cheat.utility.last_hitmarker_tick < 0.25)
-                    and misc.hit_stars
-                then
-                    cheat.utility.spawn_kill_effect(head.Position)
-                end
-            end
-            entry.last_health = health
-
-            if health <= 0 then
-                for _, v in pairs(obj) do v.Visible = false end
+            local distance = (camera.CFrame.Position - root.Position).Magnitude
+            if settings.max_distance and settings.max_distance > 0 and distance > settings.max_distance then
+                hide()
                 return
             end
 
-            -- the body parts make the bounding box
-            local parts = {}
-            for _, part in pairs(character:GetChildren()) do
-                if part:IsA("BasePart") and is_body_part(part.Name) then
-                    parts[#parts + 1] = part
-                end
-            end
-            local cframe, size = get_bounding_box(parts)
-            if not cframe then
-                for _, v in pairs(obj) do v.Visible = false end
+            local head_screen, head_on = world_to_screen(head.Position)
+            local root_screen, root_on = world_to_screen(root.Position)
+            if not (head_on and root_on) then
+                hide()
                 return
             end
 
-            local corners = calculate_corners(cframe, size)
-            local distance = mathfloor((Camera.CFrame.Position - head.Position).Magnitude / 3)
+            -- the box spans from the root part to the head
+            local left = math.min(head_screen.X, root_screen.X)
+            local right = math.max(head_screen.X, root_screen.X)
+            local top = math.min(head_screen.Y, root_screen.Y)
+            local bottom = math.max(head_screen.Y, root_screen.Y)
+            local width = math.max(right - left, 24) + 18
+            local height = math.max(bottom - top, 20) + 8
+            local x = left - 9
+            local y = top - 4
 
-            -- the skeleton parts are cached, they only change on a respawn
-            if not entry.skel_parts then
-                local skel = {}
-                for _, part in pairs(character:GetChildren()) do
-                    if skeleton_order[part.Name] then
-                        skel[part.Name] = part
+            if settings.box then
+                obj.box.Position = _Vector2new(x, y)
+                obj.box.Size = _Vector2new(width, height)
+                obj.box.Color = settings.box_color
+                obj.box.Thickness = settings.box_thickness
+                obj.box.Visible = true
+            else
+                obj.box.Visible = false
+            end
+
+            if settings.name then
+                obj.name.Text = player.DisplayName
+                obj.name.Position = _Vector2new(x + width / 2, y - 8)
+                obj.name.Color = settings.name_color
+                obj.name.Visible = true
+            else
+                obj.name.Visible = false
+            end
+
+            if settings.distance then
+                obj.distance.Text = string.format("%d m", mathfloor(distance / 3))
+                obj.distance.Position = _Vector2new(x + width / 2, y + height + 4)
+                obj.distance.Color = settings.distance_color
+                obj.distance.Visible = true
+            else
+                obj.distance.Visible = false
+            end
+
+            if settings.health then
+                local percent = math.clamp(humanoid.Health / math.max(1, humanoid.MaxHealth), 0, 1)
+                obj.health_bg.Position = _Vector2new(x - 5, y)
+                obj.health_bg.Size = _Vector2new(3, height)
+                obj.health_bg.Visible = true
+                obj.health.Position = _Vector2new(x - 5, y + height * (1 - percent))
+                obj.health.Size = _Vector2new(3, height * percent)
+                obj.health.Color = settings.health_color
+                obj.health.Visible = percent > 0
+            else
+                obj.health_bg.Visible = false
+                obj.health.Visible = false
+            end
+
+            if settings.skeleton then
+                for i = 1, #SKELETON_BONES do
+                    local bone = SKELETON_BONES[i]
+                    local line = skeleton[i]
+                    local a = character:FindFirstChild(bone[1])
+                    local b = character:FindFirstChild(bone[2])
+                    if a and b then
+                        local pa, on_a = world_to_screen(a.Position)
+                        local pb, on_b = world_to_screen(b.Position)
+                        if on_a and on_b then
+                            line.From = _Vector2new(pa.X, pa.Y)
+                            line.To = _Vector2new(pb.X, pb.Y)
+                            line.Color = settings.skeleton_color
+                            line.Thickness = 1
+                            line.Visible = true
+                        else
+                            line.Visible = false
+                        end
+                    else
+                        line.Visible = false
                     end
                 end
-                entry.skel_parts = skel
-            end
-
-            -- the visibility is cached, the "visible only" colours need it
-            if settings.box_outline_vis or settings.name_outline_vis
-                or settings.displayname_outline_vis or settings.dist_outline_vis
-                or settings.weapon_outline_vis
-            then
-                if os.clock() - (entry.last_vis_check or 0) >= 0.15 then
-                    entry.last_vis_check = os.clock()
-                    entry.is_vis = cheat.utility.is_visible(
-                        Camera.CFrame, character, head) or false
-                end
             else
-                entry.is_vis = false
+                for i = 1, #skeleton do skeleton[i].Visible = false end
             end
-
-            -- a high k/d player is marked with a red outline
-            if settings.high_kd_marker then
-                local rep = _FindFirstChild(ReplicatedStorage.Players, player.Name)
-                local kd = rep and _FindFirstChild(rep, "Data") and rep.Data:FindFirstChild("Kills")
-                    and rep.Data.Kills:FindFirstChild("Total") and rep.Data.Kills.Total.Value
-                local deaths = rep and _FindFirstChild(rep, "Data") and rep.Data:FindFirstChild("Deaths")
-                    and rep.Data.Deaths:FindFirstChild("Total") and rep.Data.Deaths.Total.Value
-                entry.cheater = (kd and deaths and deaths > 0 and kd / deaths > 5) or false
-            else
-                entry.cheater = false
-            end
-
-            draw_box(entry, corners, settings)
-            draw_names(entry, corners, settings)
-            draw_distance(entry, corners, settings, distance)
-
-            if os.clock() - entry.last_gun_time > 0.5 then
-                entry.last_gun_time = os.clock()
-                entry.last_gun = get_gun(player)
-            end
-            draw_weapon(entry, corners, settings, entry.last_gun or "None")
-            draw_health(entry, corners, settings, health, humanoid.MaxHealth)
-            draw_skeleton(entry, character, settings)
-            update_chams(entry, character, settings)
-
-            obj.name.Text = player.Name
-            obj.displayname.Text = (player.DisplayName ~= player.Name) and player.DisplayName or ""
         end)
 
-        loaded[player] = entry
+        targets[player] = entry
     end
 
-    ------------------------------------------------------------------
-    -- corpse target
-    ------------------------------------------------------------------
+    local function create_corpse_target(model)
+        local obj = { name = Drawing.new("Text") }
+        obj.name.Visible = false
+        obj.name.Center = true
+        obj.name.Outline = true
 
-    local function identify_model(model, modelname)
-        if not model then return false end
-        if modelname == "corpse" and _FindFirstChildOfClass(model, "Humanoid") then
-            return model.Name .. "'s corpse"
-        end
-        return false
-    end
-
-    local function create_object_esp(model, modelname)
-        if not model then return end
-        local espname = identify_model(model, modelname)
-        if not espname then return end
-
-        local obj = {
-            name = create_obj("Text", { Center = true, Visible = false, Text = espname }),
-        }
-        local entry = { obj = obj }
-        local settings = esp.settings.corpse
+        local entry = { obj = obj, model = model }
 
         entry.connection = cheat.utility.new_heartbeat(function()
+            local settings = esp.settings.corpse
             if not settings.enabled then
                 obj.name.Visible = false
                 return
             end
-            local mainpart = _FindFirstChild(model, "UpperTorso")
-            local worldpos = mainpart and mainpart.Position or model:GetPivot().Position
-            local position, onscreen = world_to_screen(worldpos)
-            if not onscreen then
+            if not model.Parent then
                 obj.name.Visible = false
                 return
             end
-            local str = ""
-            if settings.name then str = espname end
+
+            local part = model:FindFirstChild("UpperTorso") or model:FindFirstChild("HumanoidRootPart")
+            local position = part and part.Position or model:GetPivot().Position
+            local screen, on_screen = world_to_screen(position)
+            if not on_screen then
+                obj.name.Visible = false
+                return
+            end
+
+            local text = model.Name .. "'s corpse"
             if settings.distance then
-                local dist = mathfloor((Camera.CFrame.Position - worldpos).Magnitude / 4)
-                if str ~= "" then
-                    str = str .. " [" .. dist .. "m]"
-                else
-                    str = "[" .. dist .. "m]"
-                end
+                local camera = Workspace.CurrentCamera
+                local distance = camera and mathfloor((camera.CFrame.Position - position).Magnitude / 3) or 0
+                text = string.format("%s [%d m]", text, distance)
             end
-            if str == "" then
-                obj.name.Visible = false
-                return
-            end
-            obj.name.Text = str
-            obj.name.Position = position
-            obj.name.Size = esp.main_settings.textSize
-            obj.name.Font = esp.main_settings.textFont
+            obj.name.Text = text
+            obj.name.Position = _Vector2new(screen.X, screen.Y)
             obj.name.Color = settings.color
-            obj.name.Outline = settings.outline
-            obj.name.OutlineColor = settings.outline_color
             obj.name.Visible = true
         end)
 
-        loaded[model] = entry
+        corpses[model] = entry
     end
 
-    local function destroy_esp(target)
-        local entry = loaded[target]
+    local function destroy_player_target(player)
+        local entry = targets[player]
         if not entry then return end
-        if entry.connection then entry.connection:Disconnect() end
-        for _, v in pairs(entry.obj) do
-            pcall(function() v:Remove() end)
-        end
-        if entry.chams_object then
-            pcall(function() entry.chams_object:Destroy() end)
-        end
-        if entry.chams_active then
-            for part, original in pairs(entry.chams_original) do
-                pcall(function()
-                    part.Material = original.Material
-                    part.Color = original.Color
-                    part.Transparency = original.Transparency
-                end)
-            end
-        end
-        loaded[target] = nil
+        entry.connection:Disconnect()
+        for _, v in pairs(entry.obj) do pcall(function() v:Remove() end) end
+        for _, v in pairs(entry.skeleton) do pcall(function() v:Remove() end) end
+        targets[player] = nil
+    end
+
+    local function destroy_corpse_target(model)
+        local entry = corpses[model]
+        if not entry then return end
+        entry.connection:Disconnect()
+        for _, v in pairs(entry.obj) do pcall(function() v:Remove() end) end
+        corpses[model] = nil
     end
 
     esp.load = function()
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
-                create_esp(player)
+                create_player_target(player)
             end
         end
-        local ai_zones = Workspace:FindFirstChild("AiZones")
-        if ai_zones then
-            for _, folder in pairs(ai_zones:GetChildren()) do
-                for _, npc in pairs(folder:GetChildren()) do
-                    create_esp(npc, true)
-                end
-            end
-        end
-        local dropped = Workspace:FindFirstChild("DroppedItems")
-        if dropped then
-            for _, item in pairs(dropped:GetChildren()) do
-                create_object_esp(item, "corpse")
-            end
-        end
-
         cheat.utility.track_connection(Players.PlayerAdded:Connect(function(player)
-            create_esp(player)
+            create_player_target(player)
         end))
         cheat.utility.track_connection(Players.PlayerRemoving:Connect(function(player)
-            destroy_esp(player)
+            destroy_player_target(player)
         end))
+
+        local dropped = Workspace:FindFirstChild("DroppedItems")
         if dropped then
+            for _, model in pairs(dropped:GetChildren()) do
+                create_corpse_target(model)
+            end
             cheat.utility.track_connection(dropped.ChildAdded:Connect(function(model)
-                create_object_esp(model, "corpse")
+                create_corpse_target(model)
             end))
             cheat.utility.track_connection(dropped.ChildRemoved:Connect(function(model)
-                destroy_esp(model)
+                destroy_corpse_target(model)
             end))
         end
-        if ai_zones then
-            for _, folder in pairs(ai_zones:GetChildren()) do
-                cheat.utility.track_connection(folder.ChildAdded:Connect(function(npc)
-                    create_esp(npc, true)
-                end))
-                cheat.utility.track_connection(folder.ChildRemoved:Connect(function(npc)
-                    destroy_esp(npc)
-                end))
-            end
-        end
     end
 
-    -- re-applies every setting to every live target
     esp.refresh = function()
-        for _, entry in pairs(loaded) do
-            if entry.forceupdate then
-                pcall(entry.forceupdate)
-            end
+        for _, entry in pairs(targets) do
+            if entry.hide then entry.hide() end
         end
     end
 end
 
--- the star particles of the hit effect
-cheat.utility.spawn_kill_effect = function(pos)
-    local part = Instance.new("Part")
-    part.Anchored = true
-    part.CanCollide = false
-    part.Transparency = 1
-    part.Position = pos
-    part.Parent = Workspace.Terrain
-
-    local emit = Instance.new("ParticleEmitter")
-    emit.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-    emit.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.5), NumberSequenceKeypoint.new(1, 0) })
-    emit.Color = ColorSequence.new(misc.hit_stars_color or Color3.new(1, 1, 1))
-    emit.LightEmission = 1
-    emit.LightInfluence = 0
-    emit.ZOffset = 1
-    emit.Lifetime = NumberRange.new(1, 2)
-    emit.Rate = 0
-    emit.Speed = NumberRange.new(15, 40)
-    emit.SpreadAngle = Vector2.new(360, 360)
-    emit.Drag = 2
-    emit.Parent = part
-    emit:Emit(misc.hit_stars_amount or 100)
-
-    Debris:AddItem(part, 3)
-end
-----------------------------------------------------------------------
+--------------------------------------------------------------------
 -- TRACERS
 ----------------------------------------------------------------------
 -- Compact rewrite of the tracer module from main.luau: three styles, the
@@ -1229,7 +758,7 @@ local function draw_tracer(origin, position)
         if distance < 0.5 then return end
 
         local parts = {}
-        local segments = math.max(1, math.ceil(distance / 1900))
+        local segments = math.max(1, math.ceil(distance / 900))
         for i = 1, segments do
             local a = origin + direction * ((i - 1) / segments)
             local b = origin + direction * (i / segments)
@@ -1670,7 +1199,8 @@ cheat.utility.new_renderstepped(function()
         fov_circle.Visible = false
         return
     end
-    fov_circle.Position = _Vector2new(Mouse.X, Mouse.Y)
+    -- the mouse position is without the gui inset, the screen is with it
+    fov_circle.Position = _Vector2new(Mouse.X, Mouse.Y + GuiInset.Y)
     fov_circle.Radius = silent_aim.fov_size
     fov_circle.Color = silent_aim.fov_color
     fov_circle.Transparency = silent_aim.fov_transparency
@@ -1702,7 +1232,7 @@ cheat.utility.new_renderstepped(function()
         target_tracer.Visible = false
         return
     end
-    target_tracer.From = _Vector2new(Mouse.X, Mouse.Y)
+    target_tracer.From = _Vector2new(Mouse.X, Mouse.Y + GuiInset.Y)
     target_tracer.To = _Vector2new(screen.X, screen.Y)
     target_tracer.Color = silent_aim.target_tracer_color
     target_tracer.Thickness = silent_aim.target_tracer_thickness
@@ -3724,7 +3254,8 @@ do
             end
         end
 
-        -- the arms are hidden or chams
+        -- the arms and the clothing (the shirt / pants models) are hidden or
+        -- chams, both use the arm settings
         for _, child in ipairs(vm:GetChildren()) do
             local is_arm = false
             if child:IsA("BasePart") then
@@ -3732,25 +3263,32 @@ do
             elseif child:IsA("Model") then
                 is_arm = child.Name:find("LL") or child.Name:find("LH")
                     or child.Name:find("RL") or child.Name:find("RH")
+                    or child.Name:find("Shirt") or child.Name:find("Pants")
+                    or child.Name:find("Clothing") or child.Name:find("Suit")
             end
             if is_arm then
-                if settings.remove_arms then
-                    child.Transparency = 1
-                elseif settings.arms then
+                local parts = {}
+                if child:IsA("BasePart") then
+                    parts[1] = child
+                else
                     for _, part in ipairs(child:GetDescendants()) do
                         if part:IsA("BasePart") then
-                            part.Material = Enum.Material[settings.arms_material]
-                                or Enum.Material.SmoothPlastic
-                            part.Color = settings.arms_color
-                            part.Reflectance = 0
-                            local sa = part:FindFirstChildOfClass("SurfaceAppearance")
-                            if sa then sa:Destroy() end
+                            parts[#parts + 1] = part
                         end
                     end
-                    if child:IsA("BasePart") then
-                        child.Material = Enum.Material[settings.arms_material]
+                end
+                if settings.remove_arms then
+                    for _, part in ipairs(parts) do
+                        part.Transparency = 1
+                    end
+                elseif settings.arms then
+                    for _, part in ipairs(parts) do
+                        part.Material = Enum.Material[settings.arms_material]
                             or Enum.Material.SmoothPlastic
-                        child.Color = settings.arms_color
+                        part.Color = settings.arms_color
+                        part.Reflectance = 0
+                        local sa = part:FindFirstChildOfClass("SurfaceAppearance")
+                        if sa then sa:Destroy() end
                     end
                 end
             end
@@ -3936,6 +3474,455 @@ do
 end
 
 ----------------------------------------------------------------------
+-- PLAYER STATE (DESYNC)
+----------------------------------------------------------------------
+-- The character root is moved to the spoofed position while the server
+-- replicates it and the real position is restored right after the render
+-- step, so the client keeps aiming from the real position. The look
+-- vector spoof tilts the character and is always shown on the character.
+
+player_state = {
+    enabled = false,
+    x = 0, y = 0, z = 0,
+    rx = 0, ry = 0, rz = 0,
+    random_rotation = false,
+    random_position = false,
+    random_range = 5,
+    velocity = false,
+    vx = 0, vy = 0, vz = 0,
+    look_mode = "Straight",        -- Up / Down / Straight / Custom
+    look_pitch = 89,
+    show_character = true,         -- always enabled
+    ghost = false,
+    ghost_color = Color3.fromRGB(140, 135, 180),
+    ghost_transparency = 0.5,
+}
+
+do
+    local ghost_model = Instance.new("Model")
+    ghost_model.Name = "CenthackDesyncGhost"
+    pcall(function() ghost_model.Parent = Workspace.Terrain end)
+
+    local ghost_parts = {}
+    local last_ghost_char = nil
+
+    local function clear_ghost()
+        for _, part in pairs(ghost_parts) do
+            pcall(function() part:Destroy() end)
+        end
+        table.clear(ghost_parts)
+    end
+
+    local function is_body_part(name)
+        return name == "Head" or name:find("Torso") or name:find("Leg") or name:find("Arm")
+    end
+
+    local function rebuild_ghost(character)
+        clear_ghost()
+        last_ghost_char = character
+        if not character then return end
+        for _, part in pairs(character:GetChildren()) do
+            if part:IsA("BasePart") and is_body_part(part.Name) and part.Name ~= "HumanoidRootPart" then
+                local clone = part:Clone()
+                clone.Anchored = true
+                clone.CanCollide = false
+                clone.CanTouch = false
+                clone.CanQuery = false
+                clone.CastShadow = false
+                clone.Transparency = player_state.ghost_transparency
+                clone.Material = Enum.Material.Neon
+                clone.Color = player_state.ghost_color
+                for _, sub in pairs(clone:GetChildren()) do
+                    if not sub:IsA("SpecialMesh") then
+                        pcall(function() sub:Destroy() end)
+                    end
+                end
+                clone.Parent = ghost_model
+                ghost_parts[part] = clone
+            end
+        end
+    end
+
+    local function look_pitch()
+        if player_state.look_mode == "Up" then
+            return math.rad(89)
+        elseif player_state.look_mode == "Down" then
+            return math.rad(-89)
+        elseif player_state.look_mode == "Custom" then
+            return math.rad(player_state.look_pitch)
+        end
+        return 0
+    end
+
+    -- the character itself tilts with the spoofed look vector, this is always
+    -- on so the spoof is visible
+    local function apply_character_tilt()
+        local character = LocalPlayer.Character
+        if not character then return end
+        local pitch = look_pitch()
+        local upper = character:FindFirstChild("UpperTorso")
+        local waist = upper and upper:FindFirstChild("Waist")
+        local head = character:FindFirstChild("Head")
+        local neck = head and (head:FindFirstChild("Neck") or (upper and upper:FindFirstChild("Neck")))
+        if waist then
+            if not waist:GetAttribute("_cent_orig_c0") then
+                waist:SetAttribute("_cent_orig_c0", waist.C0)
+            end
+            waist.C0 = waist:GetAttribute("_cent_orig_c0") * CFrame.Angles(pitch, 0, 0)
+        end
+        if neck then
+            if not neck:GetAttribute("_cent_orig_c0") then
+                neck:SetAttribute("_cent_orig_c0", neck.C0)
+            end
+            neck.C0 = neck:GetAttribute("_cent_orig_c0") * CFrame.Angles(pitch * 0.4, 0, 0)
+        end
+    end
+
+    -- the desync itself
+    RunService.Heartbeat:Connect(function()
+        if not player_state.enabled then return end
+        local character = LocalPlayer.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        local old_cframe = hrp.CFrame
+        local old_velocity = hrp.AssemblyLinearVelocity
+
+        local offset = CFrame.new(player_state.x, player_state.y, player_state.z)
+            * CFrame.Angles(player_state.rx, player_state.ry, player_state.rz)
+
+        if player_state.random_rotation then
+            offset = offset * CFrame.Angles(
+                (math.random() - math.random()) * 2 * math.pi,
+                (math.random() - math.random()) * 2 * math.pi,
+                (math.random() - math.random()) * 2 * math.pi)
+        end
+        if player_state.random_position then
+            offset = offset + (
+                CFrame.Angles(
+                    (math.random() - math.random()) * 2 * math.pi,
+                    (math.random() - math.random()) * 2 * math.pi,
+                    (math.random() - math.random()) * 2 * math.pi)
+                * CFrame.new(0, 0, -player_state.random_range)).Position
+        end
+
+        hrp.CFrame = old_cframe * offset
+
+        if player_state.velocity then
+            hrp.AssemblyLinearVelocity = _Vector3new(
+                player_state.vx, player_state.vy, player_state.vz)
+        end
+
+        -- the look vector spoof, the server believes the character looks up
+        local pitch = look_pitch()
+        if pitch ~= 0 then
+            pcall(function()
+                local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                local tilt = remotes and remotes:FindFirstChild("UpdateTilt")
+                if tilt then
+                    tilt:FireServer(pitch, 0)
+                end
+            end)
+        end
+
+        RunService.RenderStepped:Wait()
+
+        hrp.CFrame = old_cframe
+        if player_state.velocity then
+            hrp.AssemblyLinearVelocity = old_velocity
+        end
+    end)
+
+    -- the ghost shows where the server thinks the character is
+    cheat.utility.new_renderstepped(function()
+        if not player_state.ghost or not player_state.enabled then
+            for _, clone in pairs(ghost_parts) do
+                if clone.Adornee or clone.Parent then
+                    clone.Transparency = 1
+                end
+            end
+            return
+        end
+
+        local character = LocalPlayer.Character
+        if not character then
+            clear_ghost()
+            last_ghost_char = nil
+            return
+        end
+        if character ~= last_ghost_char then
+            rebuild_ghost(character)
+        end
+
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        local offset = CFrame.new(player_state.x, player_state.y, player_state.z)
+            * CFrame.Angles(player_state.rx, player_state.ry, player_state.rz)
+        local delta = offset
+
+        for original, clone in pairs(ghost_parts) do
+            if original.Parent and clone.Parent then
+                clone.CFrame = delta * original.CFrame
+                clone.Transparency = player_state.ghost_transparency
+                clone.Color = player_state.ghost_color
+            end
+        end
+    end)
+
+    -- the character tilt runs every frame so it survives a respawn
+    cheat.utility.new_renderstepped(function()
+        if not player_state.enabled then return end
+        apply_character_tilt()
+    end)
+
+    cheat.utility.track_connection(LocalPlayer.CharacterAdded:Connect(function()
+        last_ghost_char = nil
+    end))
+end
+
+----------------------------------------------------------------------
+-- MOVEMENT
+----------------------------------------------------------------------
+
+movement = {
+    speed = false,
+    speed_value = 18.2,
+    fly = false,
+    fly_speed = 10,
+    fly_y_speed = 10,
+    bhop = false,
+    bhop_velocity = 22,
+    bhop_boost = false,
+    bhop_boost_speed = 35,
+    no_fall = false,
+    jesus = false,
+    wallclimb = false,
+    wallclimb_speed = 35,
+    no_weight = false,
+    no_animations = false,
+}
+
+do
+    local water_part = nil
+
+    local function apply_remove_animations(value)
+        local character = LocalPlayer.Character
+        if not character then return end
+        local animate = character:FindFirstChild("Animate")
+        if animate then
+            animate.Disabled = value
+        end
+        if value then
+            local hum = character:FindFirstChildOfClass("Humanoid")
+            local animator = hum and hum:FindFirstChildOfClass("Animator")
+            if animator then
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                    pcall(function() track:Stop() end)
+                end
+            end
+        end
+    end
+    movement.apply_remove_animations = apply_remove_animations
+
+    local wallclimb_params = RaycastParams.new()
+    wallclimb_params.FilterType = Enum.RaycastFilterType.Exclude
+    wallclimb_params.IgnoreWater = true
+
+    cheat.utility.new_heartbeat(function()
+        local character = LocalPlayer.Character
+        local hum = character and character:FindFirstChildOfClass("Humanoid")
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if not (hum and hrp) then return end
+
+        if movement.speed then
+            hum.WalkSpeed = movement.speed_value
+        end
+
+        if movement.no_weight then
+            for _, attr in ipairs({ "Weight", "ItemWeight", "CarryWeight", "Encumbrance", "LoadWeight", "Encumbered", "Slow" }) do
+                pcall(function()
+                    if hum:GetAttribute(attr) ~= nil then hum:SetAttribute(attr, 0) end
+                end)
+            end
+        end
+
+        if movement.no_fall and hum:GetState() == Enum.HumanoidStateType.Freefall then
+            if hrp.AssemblyLinearVelocity.Y < -12.5 then
+                hum:ChangeState(Enum.HumanoidStateType.Landed)
+            end
+        end
+
+        if movement.bhop and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            if hum.FloorMaterial ~= Enum.Material.Air then
+                hrp.AssemblyLinearVelocity = _Vector3new(
+                    hrp.AssemblyLinearVelocity.X,
+                    movement.bhop_velocity,
+                    hrp.AssemblyLinearVelocity.Z)
+            end
+        end
+
+        if movement.wallclimb
+            and UserInputService:IsKeyDown(Enum.KeyCode.W)
+            and UserInputService:IsKeyDown(Enum.KeyCode.Space)
+        then
+            local look = Camera.CFrame.LookVector
+            local flat = _Vector3new(look.X, 0, look.Z)
+            if flat.Magnitude > 0.05 then
+                flat = flat.Unit
+                wallclimb_params.FilterDescendantsInstances = { character, Camera }
+                local wall = Workspace:Raycast(hrp.Position, flat * 2.5, wallclimb_params)
+                if wall then
+                    local velocity = hrp.AssemblyLinearVelocity
+                    hrp.AssemblyLinearVelocity = _Vector3new(
+                        velocity.X, movement.wallclimb_speed, velocity.Z)
+                end
+            end
+        end
+    end)
+
+    -- the fly hack and the water walk run on the render step so they are smooth
+    cheat.utility.new_renderstepped(function(delta)
+        delta = delta or (1 / 60)
+        local character = LocalPlayer.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        if movement.fly then
+            local look = Camera.CFrame.LookVector
+            local flat = _Vector3new(look.X, 0, look.Z)
+            local direction = _Vector3new(0, 0, 0)
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction = direction + flat end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction = direction - flat end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                direction = direction + _Vector3new(-flat.Z, 0, flat.X)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                direction = direction + _Vector3new(flat.Z, 0, -flat.X)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                direction = direction + _Vector3new(0, 1, 0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                direction = direction - _Vector3new(0, 1, 0)
+            end
+            if direction.Magnitude > 0 then
+                direction = direction.Unit
+                local velocity = direction * movement.fly_speed
+                hrp.AssemblyLinearVelocity = _Vector3new(
+                    velocity.X,
+                    hrp.AssemblyLinearVelocity.Y + (direction.Y * movement.fly_y_speed * delta),
+                    velocity.Z)
+            end
+        end
+
+        if movement.jesus then
+            local ray = Ray.new(hrp.Position, _Vector3new(0, -10, 0))
+            local hit, position, _, material = Workspace:FindPartOnRayWithWhitelist(ray, { Workspace.Terrain })
+            if material == Enum.Material.Water then
+                if not water_part then
+                    local parent = Workspace:FindFirstChild("NoCollision") or Workspace
+                    water_part = Instance.new("Part", parent)
+                    water_part.Transparency = 1
+                    water_part.Size = _Vector3new(10, 1, 10)
+                    water_part.CanCollide = true
+                    water_part.Anchored = true
+                else
+                    water_part.Position = position
+                end
+            elseif water_part then
+                water_part:Destroy()
+                water_part = nil
+            end
+        elseif water_part then
+            water_part:Destroy()
+            water_part = nil
+        end
+    end)
+
+    cheat.utility.track_connection(LocalPlayer.CharacterAdded:Connect(function(character)
+        if not movement.no_animations then return end
+        task.wait(0.5)
+        if LocalPlayer.Character == character then
+            apply_remove_animations(true)
+        end
+    end))
+end
+
+----------------------------------------------------------------------
+-- PLAYER VISUALS
+----------------------------------------------------------------------
+
+player_visuals = {
+    transparency = 0,
+    color_override = false,
+    color = Color3.new(1, 1, 1),
+    material_override = false,
+    material = "ForceField",
+    cam_x = 0,
+    cam_y = 0,
+    cam_z = 0,
+}
+
+do
+    cheat.utility.new_renderstepped(function()
+        local character = LocalPlayer.Character
+        if not character then return end
+
+        if player_visuals.transparency > 0.01 then
+            for _, obj in pairs(character:GetDescendants()) do
+                if obj:IsA("BasePart") then
+                    if not obj:GetAttribute("_cent_orig_trans") then
+                        obj:SetAttribute("_cent_orig_trans", obj.Transparency)
+                    end
+                    obj.Transparency = player_visuals.transparency
+                    obj.LocalTransparencyModifier = player_visuals.transparency
+                elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                    if not obj:GetAttribute("_cent_orig_trans") then
+                        obj:SetAttribute("_cent_orig_trans", obj.Transparency)
+                    end
+                    obj.Transparency = player_visuals.transparency
+                end
+            end
+        end
+
+        if player_visuals.color_override then
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if not part:GetAttribute("_cent_orig_color") then
+                        part:SetAttribute("_cent_orig_color", part.Color)
+                    end
+                    part.Color = player_visuals.color
+                end
+            end
+        end
+
+        if player_visuals.material_override then
+            local material = Enum.Material[player_visuals.material]
+            if material then
+                for _, part in pairs(character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        if not part:GetAttribute("_cent_orig_mat") then
+                            part:SetAttribute("_cent_orig_mat", part.Material.Name)
+                        end
+                        part.Material = material
+                    end
+                end
+            end
+        end
+
+        -- the camera offset works without the third person
+        if player_visuals.cam_x ~= 0 or player_visuals.cam_y ~= 0 or player_visuals.cam_z ~= 0 then
+            local camera = Workspace.CurrentCamera
+            if camera then
+                camera.CFrame = camera.CFrame
+                    * CFrame.new(player_visuals.cam_x, player_visuals.cam_y, player_visuals.cam_z)
+            end
+        end
+    end)
+end
+
+----------------------------------------------------------------------
 -- UI
 ----------------------------------------------------------------------
 -- The void library: window -> tab -> section -> element.
@@ -3943,13 +3930,14 @@ end
 local main_tab = window:Tab("Main")
 local visuals_tab = window:Tab("Visuals")
 local misc_tab = window:Tab("Misc")
+local player_tab = window:Tab("Player")
 local settings_tab = window:Tab("Settings")
 
 -- MAIN TAB ------------------------------------------------------------------
 -- left: main + rage
 local main_section = main_tab:Section({ name = "Main", side = "left" })
-local rage_section = main_tab:Section({ name = "rage", side = "left" })
--- right: weaponmods
+-- right: rage + weaponmods
+local rage_section = main_tab:Section({ name = "rage", side = "right" })
 local weapon_section = main_tab:Section({ name = "Weaponmods", side = "right" })
 
 -- VISUALS TAB ---------------------------------------------------------------
@@ -3964,6 +3952,13 @@ local other_section = visuals_tab:Section({ name = "other visuals", side = "righ
 -- left: viewmodel + chams | right: sounds + freecam
 local viewmodel_section = misc_tab:Section({ name = "viewmodel", side = "left" })
 local sound_section = misc_tab:Section({ name = "sounds", side = "right" })
+
+-- PLAYER TAB -----------------------------------------------------------------
+-- left: desync + movement | right: player visuals + extras
+local desync_section = player_tab:Section({ name = "player state", side = "left" })
+local movement_section = player_tab:Section({ name = "movement", side = "left" })
+local visuals_section = player_tab:Section({ name = "player visuals", side = "right" })
+local extras_section = player_tab:Section({ name = "extras", side = "right" })
 
 -- SETTINGS TAB ----------------------------------------------------------------
 -- left: config manager | right: theme + info
@@ -4045,7 +4040,7 @@ main_section:Slider({
     min = 10,
     max = 600,
     default = 100,
-    float = 1,
+    float = 0.01,
     flag = "silentaim_fov_size",
     callback = function(v)
         silent_aim.fov_size = v
@@ -4075,7 +4070,7 @@ main_section:Slider({
     min = 0,
     max = 5000,
     default = 0,
-    float = 1,
+    float = 0.01,
     flag = "silentaim_distance",
     callback = function(v)
         silent_aim.max_distance = v
@@ -4124,7 +4119,7 @@ main_section:Slider({
     min = 0.1,
     max = 10,
     default = 0.5,
-    float = 1,
+    float = 0.01,
     flag = "tracer_thickness",
     callback = function(v)
         silent_aim.tracer_thickness = v
@@ -4136,7 +4131,7 @@ main_section:Slider({
     min = 0.1,
     max = 5,
     default = 1,
-    float = 1,
+    float = 0.01,
     flag = "tracer_lifetime",
     callback = function(v)
         silent_aim.tracer_lifetime = v
@@ -4166,7 +4161,7 @@ main_section:Slider({
     min = 1,
     max = 10,
     default = 1,
-    float = 1,
+    float = 0.01,
     flag = "silentaim_target_tracer_thickness",
     callback = function(v)
         silent_aim.target_tracer_thickness = v
@@ -4219,7 +4214,7 @@ rage_section:Slider({
     min = 1,
     max = 50,
     default = 30,
-    float = 1,
+    float = 0.01,
     flag = "manipulate_offset",
     callback = function(v)
         silent_aim.manipulation_max_offset = v
@@ -4284,7 +4279,7 @@ rage_section:Slider({
     min = 5,
     max = 100,
     default = 30,
-    float = 1,
+    float = 0.01,
     flag = "ug_resolver_depth",
     callback = function(v)
         ug_resolver.depth = v
@@ -4316,7 +4311,7 @@ rage_section:Slider({
     min = 1,
     max = 4000,
     default = 4000,
-    float = 1,
+    float = 0.01,
     flag = "ragebot_range",
     callback = function(v)
         ragebot.range = v
@@ -4350,7 +4345,7 @@ weapon_section:Slider({
     min = 0,
     max = 100,
     default = 0,
-    float = 1,
+    float = 0.01,
     flag = "gunmods_recoil_percent",
     callback = function(v)
         gunmods.recoil_percent = v
@@ -4371,7 +4366,7 @@ weapon_section:Slider({
     min = 0,
     max = 100,
     default = 0,
-    float = 1,
+    float = 0.01,
     flag = "gunmods_spread_percent",
     callback = function(v)
         gunmods.spread_percent = v
@@ -4392,7 +4387,7 @@ weapon_section:Slider({
     min = 0.01,
     max = 0.5,
     default = 0.05,
-    float = 3,
+    float = 0.01,
     flag = "gunmods_rapidfire_delay",
     callback = function(v)
         gunmods.rapid_fire_delay = v
@@ -4458,7 +4453,7 @@ weapon_section:Slider({
     min = 1,
     max = 15,
     default = 5,
-    float = 1,
+    float = 0.01,
     flag = "gunmods_meleereach_dist",
     callback = function(v)
         gunmods.melee_reach_dist = v
@@ -4479,7 +4474,7 @@ weapon_section:Slider({
     min = 1,
     max = 15,
     default = 3,
-    float = 1,
+    float = 0.01,
     flag = "gunmods_multibullet_count",
     callback = function(v)
         gunmods.multibullet_count = v
@@ -4490,7 +4485,8 @@ weapon_section:Slider({
 -- VISUALS: esp
 ----------------------------------------------------------------------
 
-local es = esp.settings.enemy
+local es = esp.settings.players
+local corpse = esp.settings.corpse
 
 esp_section:Toggle({
     name = "enable esp",
@@ -4501,571 +4497,106 @@ esp_section:Toggle({
     end,
 })
 
--- BOX -----------------------------------------------------------------------
 esp_section:Separator("box")
 
 esp_section:Toggle({
     name = "box",
-    default = false,
+    default = true,
     flag = "esp_box",
     callback = function(v) es.box = v end,
-})
-
-esp_section:Toggle({
-    name = "box fill",
-    default = false,
-    flag = "esp_box_fill",
-    callback = function(v) es.box_fill = v end,
-})
-
-esp_section:Toggle({
-    name = "box outline",
-    default = false,
-    flag = "esp_box_outline",
-    callback = function(v) es.box_outline = v end,
-})
-
-esp_section:Toggle({
-    name = "box outline (visible)",
-    default = false,
-    flag = "esp_box_outline_vis",
-    callback = function(v) es.box_outline_vis = v end,
 })
 
 esp_section:ColorPicker({
     name = "box color",
     default = Color3.new(1, 1, 1),
     flag = "esp_box_color",
-    callback = function(v)
-        es.box_color[1] = v
-        esp.refresh()
-    end,
+    callback = function(v) es.box_color = v end,
 })
 
 esp_section:Slider({
-    name = "box transparency",
-    min = 0,
-    max = 100,
-    default = 0,
+    name = "box thickness",
+    min = 1,
+    max = 5,
+    default = 1,
     float = 1,
-    flag = "esp_box_transparency",
-    callback = function(v)
-        es.box_color[2] = 1 - (v / 100)
-        esp.refresh()
-    end,
+    flag = "esp_box_thickness",
+    callback = function(v) es.box_thickness = v end,
 })
 
-esp_section:ColorPicker({
-    name = "box fill color",
-    default = Color3.new(1, 0, 0),
-    flag = "esp_box_fill_color",
-    callback = function(v)
-        es.box_fill_color[1] = v
-        esp.refresh()
-    end,
-})
-
-esp_section:Slider({
-    name = "box fill transparency",
-    min = 0,
-    max = 100,
-    default = 50,
-    float = 1,
-    flag = "esp_box_fill_transparency",
-    callback = function(v)
-        es.box_fill_color[2] = 1 - (v / 100)
-        esp.refresh()
-    end,
-})
-
-esp_section:ColorPicker({
-    name = "box outline color",
-    default = Color3.new(),
-    flag = "esp_box_outline_color",
-    callback = function(v)
-        es.box_outline_color[1] = v
-        esp.refresh()
-    end,
-})
-
-esp_section:Slider({
-    name = "box outline transparency",
-    min = 0,
-    max = 100,
-    default = 0,
-    float = 1,
-    flag = "esp_box_outline_transparency",
-    callback = function(v)
-        es.box_outline_color[2] = 1 - (v / 100)
-        esp.refresh()
-    end,
-})
-
-esp_section:ColorPicker({
-    name = "visible box outline color",
-    default = Color3.new(),
-    flag = "esp_box_outline_vis_color",
-    callback = function(v)
-        es.box_outline_vis_color[1] = v
-        esp.refresh()
-    end,
-})
-
--- TEXT ----------------------------------------------------------------------
 esp_section:Separator("text")
 
 esp_section:Toggle({
     name = "name",
-    default = false,
+    default = true,
     flag = "esp_name",
     callback = function(v) es.name = v end,
-})
-
-esp_section:Toggle({
-    name = "name outline",
-    default = false,
-    flag = "esp_name_outline",
-    callback = function(v) es.name_outline = v end,
-})
-
-esp_section:Toggle({
-    name = "name outline (visible)",
-    default = false,
-    flag = "esp_name_outline_vis",
-    callback = function(v) es.name_outline_vis = v end,
 })
 
 esp_section:ColorPicker({
     name = "name color",
     default = Color3.new(1, 1, 1),
     flag = "esp_name_color",
-    callback = function(v)
-        es.name_color[1] = v
-        esp.refresh()
-    end,
-})
-
-esp_section:Slider({
-    name = "name transparency",
-    min = 0,
-    max = 100,
-    default = 0,
-    float = 1,
-    flag = "esp_name_transparency",
-    callback = function(v)
-        es.name_color[2] = 1 - (v / 100)
-        esp.refresh()
-    end,
-})
-
-esp_section:ColorPicker({
-    name = "name outline color",
-    default = Color3.new(),
-    flag = "esp_name_outline_color",
-    callback = function(v)
-        es.name_outline_color = v
-        esp.refresh()
-    end,
-})
-
-esp_section:ColorPicker({
-    name = "visible name outline color",
-    default = Color3.new(),
-    flag = "esp_name_outline_vis_color",
-    callback = function(v)
-        es.name_outline_vis_color = v
-        esp.refresh()
-    end,
-})
-
-esp_section:Toggle({
-    name = "display name",
-    default = false,
-    flag = "esp_displayname",
-    callback = function(v) es.displayname = v end,
-})
-
-esp_section:Toggle({
-    name = "display name outline",
-    default = false,
-    flag = "esp_displayname_outline",
-    callback = function(v) es.displayname_outline = v end,
-})
-
-esp_section:Toggle({
-    name = "display name outline (visible)",
-    default = false,
-    flag = "esp_displayname_outline_vis",
-    callback = function(v) es.displayname_outline_vis = v end,
-})
-
-esp_section:ColorPicker({
-    name = "display name color",
-    default = Color3.new(1, 1, 1),
-    flag = "esp_displayname_color",
-    callback = function(v)
-        es.displayname_color[1] = v
-        esp.refresh()
-    end,
-})
-
-esp_section:Slider({
-    name = "display name transparency",
-    min = 0,
-    max = 100,
-    default = 0,
-    float = 1,
-    flag = "esp_displayname_transparency",
-    callback = function(v)
-        es.displayname_color[2] = 1 - (v / 100)
-        esp.refresh()
-    end,
-})
-
-esp_section:ColorPicker({
-    name = "display name outline color",
-    default = Color3.new(),
-    flag = "esp_displayname_outline_color",
-    callback = function(v)
-        es.displayname_outline_color = v
-        esp.refresh()
-    end,
-})
-
-esp_section:ColorPicker({
-    name = "visible display name outline color",
-    default = Color3.new(),
-    flag = "esp_displayname_outline_vis_color",
-    callback = function(v)
-        es.displayname_outline_vis_color = v
-        esp.refresh()
-    end,
+    callback = function(v) es.name_color = v end,
 })
 
 esp_section:Toggle({
     name = "distance",
-    default = false,
+    default = true,
     flag = "esp_distance",
-    callback = function(v) es.dist = v end,
-})
-
-esp_section:Toggle({
-    name = "distance outline",
-    default = false,
-    flag = "esp_distance_outline",
-    callback = function(v) es.dist_outline = v end,
-})
-
-esp_section:Toggle({
-    name = "distance outline (visible)",
-    default = false,
-    flag = "esp_distance_outline_vis",
-    callback = function(v) es.dist_outline_vis = v end,
+    callback = function(v) es.distance = v end,
 })
 
 esp_section:ColorPicker({
     name = "distance color",
     default = Color3.new(1, 1, 1),
     flag = "esp_distance_color",
-    callback = function(v)
-        es.dist_color[1] = v
-        esp.refresh()
-    end,
+    callback = function(v) es.distance_color = v end,
 })
 
-esp_section:Slider({
-    name = "distance transparency",
-    min = 0,
-    max = 100,
-    default = 0,
-    float = 1,
-    flag = "esp_distance_transparency",
-    callback = function(v)
-        es.dist_color[2] = 1 - (v / 100)
-        esp.refresh()
-    end,
-})
-
-esp_section:ColorPicker({
-    name = "distance outline color",
-    default = Color3.new(),
-    flag = "esp_distance_outline_color",
-    callback = function(v)
-        es.dist_outline_color = v
-        esp.refresh()
-    end,
-})
-
-esp_section:ColorPicker({
-    name = "visible distance outline color",
-    default = Color3.new(),
-    flag = "esp_distance_outline_vis_color",
-    callback = function(v)
-        es.dist_outline_vis_color = v
-        esp.refresh()
-    end,
-})
+esp_section:Separator("health")
 
 esp_section:Toggle({
-    name = "weapon",
-    default = false,
-    flag = "esp_weapon",
-    callback = function(v) es.weapon = v end,
-})
-
-esp_section:Toggle({
-    name = "weapon outline",
-    default = false,
-    flag = "esp_weapon_outline",
-    callback = function(v) es.weapon_outline = v end,
-})
-
-esp_section:Toggle({
-    name = "weapon outline (visible)",
-    default = false,
-    flag = "esp_weapon_outline_vis",
-    callback = function(v) es.weapon_outline_vis = v end,
-})
-
-esp_section:ColorPicker({
-    name = "weapon color",
-    default = Color3.new(1, 1, 1),
-    flag = "esp_weapon_color",
-    callback = function(v)
-        es.weapon_color[1] = v
-        esp.refresh()
-    end,
-})
-
-esp_section:Slider({
-    name = "weapon transparency",
-    min = 0,
-    max = 100,
-    default = 0,
-    float = 1,
-    flag = "esp_weapon_transparency",
-    callback = function(v)
-        es.weapon_color[2] = 1 - (v / 100)
-        esp.refresh()
-    end,
-})
-
-esp_section:ColorPicker({
-    name = "weapon outline color",
-    default = Color3.new(),
-    flag = "esp_weapon_outline_color",
-    callback = function(v)
-        es.weapon_outline_color = v
-        esp.refresh()
-    end,
-})
-
-esp_section:ColorPicker({
-    name = "visible weapon outline color",
-    default = Color3.new(),
-    flag = "esp_weapon_outline_vis_color",
-    callback = function(v)
-        es.weapon_outline_vis_color = v
-        esp.refresh()
-    end,
-})
-
--- HEALTH --------------------------------------------------------------------
-esp_extra_section:Separator("health")
-
-esp_extra_section:Toggle({
     name = "health",
-    default = false,
+    default = true,
     flag = "esp_health",
     callback = function(v) es.health = v end,
 })
 
-esp_extra_section:ColorPicker({
-    name = "health color top",
+esp_section:ColorPicker({
+    name = "health color",
     default = Color3.new(0, 1, 0),
-    flag = "esp_health_top",
-    callback = function(v) es.health_color_top = v end,
+    flag = "esp_health_color",
+    callback = function(v) es.health_color = v end,
 })
 
-esp_extra_section:ColorPicker({
-    name = "health color bottom",
-    default = Color3.new(1, 0, 0),
-    flag = "esp_health_bottom",
-    callback = function(v) es.health_color_bottom = v end,
-})
+esp_section:Separator("skeleton")
 
-esp_extra_section:Slider({
-    name = "health bar thickness",
-    min = 1,
-    max = 10,
-    default = 2,
-    float = 1,
-    flag = "esp_health_thickness",
-    callback = function(v)
-        es.health_thickness = v
-        esp.refresh()
-    end,
-})
-
-esp_extra_section:Slider({
-    name = "health glow size",
-    min = 1,
-    max = 20,
-    default = 5,
-    float = 1,
-    flag = "esp_health_glow_size",
-    callback = function(v)
-        es.health_glow_size = v
-        esp.refresh()
-    end,
-})
-
--- SKELETON ------------------------------------------------------------------
-esp_extra_section:Separator("skeleton")
-
-esp_extra_section:Toggle({
+esp_section:Toggle({
     name = "skeleton",
     default = false,
     flag = "esp_skeleton",
     callback = function(v) es.skeleton = v end,
 })
 
-esp_extra_section:ColorPicker({
+esp_section:ColorPicker({
     name = "skeleton color",
     default = Color3.new(1, 1, 1),
     flag = "esp_skeleton_color",
-    callback = function(v)
-        es.skeleton_color[1] = v
-        esp.refresh()
-    end,
+    callback = function(v) es.skeleton_color = v end,
 })
 
-esp_extra_section:Slider({
-    name = "skeleton transparency",
+esp_section:Slider({
+    name = "max distance",
     min = 0,
-    max = 100,
+    max = 5000,
     default = 0,
-    float = 1,
-    flag = "esp_skeleton_transparency",
-    callback = function(v)
-        es.skeleton_color[2] = 1 - (v / 100)
-        esp.refresh()
-    end,
+    float = 0.01,
+    flag = "esp_max_distance",
+    callback = function(v) es.max_distance = v end,
 })
 
--- CHAMS ---------------------------------------------------------------------
-esp_extra_section:Separator("chams")
-
-esp_extra_section:Toggle({
-    name = "chams",
-    default = false,
-    flag = "esp_chams",
-    callback = function(v) es.chams = v end,
-})
-
-esp_extra_section:Toggle({
-    name = "chams visible only",
-    default = false,
-    flag = "esp_chams_visible_only",
-    callback = function(v) es.chams_visible_only = v end,
-})
-
-esp_extra_section:Dropdown({
-    name = "chams material",
-    content = { "Neon", "ForceField", "Glass", "SmoothPlastic" },
-    default = "Neon",
-    flag = "esp_chams_material",
-    callback = function(v) es.chams_material = v end,
-})
-
-esp_extra_section:ColorPicker({
-    name = "chams color",
-    default = Color3.new(1, 1, 1),
-    flag = "esp_chams_fill_color",
-    callback = function(v)
-        es.chams_fill_color[1] = v
-        esp.refresh()
-    end,
-})
-
-esp_extra_section:Slider({
-    name = "chams transparency",
-    min = 0,
-    max = 100,
-    default = 50,
-    float = 1,
-    flag = "esp_chams_transparency",
-    callback = function(v)
-        es.chams_fill_color[2] = v / 100
-        esp.refresh()
-    end,
-})
-
-esp_extra_section:ColorPicker({
-    name = "chams outline color",
-    default = Color3.new(1, 1, 1),
-    flag = "esp_chams_outline_color",
-    callback = function(v)
-        es.chams_outline_color[1] = v
-        esp.refresh()
-    end,
-})
-
--- MISC ----------------------------------------------------------------------
-esp_extra_section:Separator("misc")
-
-esp_extra_section:Toggle({
-    name = "infinite range",
-    default = false,
-    flag = "esp_infinite_range",
-    callback = function(v)
-        esp.main_settings.infiniterange = v
-        esp.refresh()
-    end,
-})
-
-esp_extra_section:Slider({
-    name = "esp font size",
-    min = 1,
-    max = 30,
-    default = 13,
-    float = 1,
-    flag = "esp_font_size",
-    callback = function(v)
-        esp.main_settings.textSize = v
-        esp.refresh()
-    end,
-})
-
-esp_extra_section:Dropdown({
-    name = "esp font",
-    content = { "Monospace", "Code", "Plex", "UI", "System" },
-    default = "Monospace",
-    flag = "esp_font",
-    callback = function(v)
-        esp.main_settings.textFont = Drawing.Fonts[v] or Drawing.Fonts.Monospace
-        esp.refresh()
-    end,
-})
-
-esp_extra_section:Toggle({
-    name = "highlight high kd (>5)",
-    default = false,
-    flag = "esp_high_kd_marker",
-    callback = function(v) es.high_kd_marker = v end,
-})
-
-esp_extra_section:ColorPicker({
-    name = "cheater outline color",
-    default = Color3.fromRGB(255, 0, 0),
-    flag = "esp_high_kd_color",
-    callback = function(v) es.high_kd_outline_color = v end,
-})
-
--- CORPSE ESP ----------------------------------------------------------------
+-- corpse esp
 esp_section:Separator("corpse esp")
-
-local corpse = esp.settings.corpse
 
 esp_section:Toggle({
     name = "enable corpse esp",
@@ -5103,25 +4634,6 @@ esp_section:ColorPicker({
     end,
 })
 
-esp_section:Toggle({
-    name = "corpse outline",
-    default = false,
-    flag = "corpse_esp_outline",
-    callback = function(v)
-        corpse.outline = v
-    end,
-})
-
-esp_section:ColorPicker({
-    name = "corpse outline color",
-    default = Color3.new(),
-    flag = "corpse_esp_outline_color",
-    callback = function(v)
-        corpse.outline_color = v
-    end,
-})
-
--- item finder
 esp_section:Separator("item finder")
 
 item_finder.enabled = false
@@ -5151,7 +4663,7 @@ esp_section:Slider({
     min = 0,
     max = 2000,
     default = 20,
-    float = 1,
+    float = 0.01,
     flag = "inv_finder_x",
     callback = function(v)
         item_finder.x = v
@@ -5163,7 +4675,7 @@ esp_section:Slider({
     min = 0,
     max = 1200,
     default = 60,
-    float = 1,
+    float = 0.01,
     flag = "inv_finder_y",
     callback = function(v)
         item_finder.y = v
@@ -5209,7 +4721,7 @@ esp_section:Slider({
     min = 0,
     max = 2000,
     default = 24,
-    float = 1,
+    float = 0.01,
     flag = "inventoryviewer_x",
     callback = function(v)
         inventory_checker.x = v
@@ -5221,7 +4733,7 @@ esp_section:Slider({
     min = 0,
     max = 1200,
     default = 100,
-    float = 1,
+    float = 0.01,
     flag = "inventoryviewer_y",
     callback = function(v)
         inventory_checker.y = v
@@ -5264,7 +4776,7 @@ lightning_section:Slider({
     min = 0,
     max = 10,
     default = 1,
-    float = 2,
+    float = 0.01,
     flag = "world_brightness",
     callback = function(v)
         world.ambient_brightness = v
@@ -5333,7 +4845,7 @@ lightning_section:Slider({
     min = 0,
     max = 24,
     default = 12,
-    float = 1,
+    float = 0.01,
     flag = "world_time",
     callback = function(v)
         world.time = v
@@ -5367,7 +4879,7 @@ other_section:Slider({
     min = 10,
     max = 200,
     default = 100,
-    float = 1,
+    float = 0.01,
     flag = "killeffect_amount",
     callback = function(v)
         misc.hit_stars_amount = v
@@ -5388,7 +4900,7 @@ other_section:Slider({
     min = 2,
     max = 20,
     default = 8,
-    float = 1,
+    float = 0.01,
     flag = "hitmarkers_size",
     callback = function(v)
         misc.hitmarker_size = v
@@ -5400,7 +4912,7 @@ other_section:Slider({
     min = 0.1,
     max = 3,
     default = 0.7,
-    float = 2,
+    float = 0.01,
     flag = "hitmarkers_lifetime",
     callback = function(v)
         misc.hitmarker_lifetime = v
@@ -5454,11 +4966,534 @@ other_section:Slider({
     min = 5,
     max = 30,
     default = 10,
-    float = 1,
+    float = 0.01,
     flag = "melee_skin_scale",
     callback = function(v)
         knifemods.melee_skin_scale = v / 10
     end,
+})
+
+----------------------------------------------------------------------
+-- PLAYER: DESYNC
+----------------------------------------------------------------------
+
+desync_section:Toggle({
+    name = "desync enabled",
+    default = false,
+    flag = "desync_enabled",
+    callback = function(v)
+        player_state.enabled = v
+    end,
+})
+
+desync_section:Separator("offset")
+
+desync_section:Slider({
+    name = "offset x",
+    min = -10,
+    max = 10,
+    default = 0,
+    float = 0.01,
+    flag = "desync_x",
+    callback = function(v) player_state.x = v end,
+})
+
+desync_section:Slider({
+    name = "offset y",
+    min = -10,
+    max = 10,
+    default = 0,
+    float = 0.01,
+    flag = "desync_y",
+    callback = function(v) player_state.y = v end,
+})
+
+desync_section:Slider({
+    name = "offset z",
+    min = -10,
+    max = 10,
+    default = 0,
+    float = 0.01,
+    flag = "desync_z",
+    callback = function(v) player_state.z = v end,
+})
+
+desync_section:Separator("rotation")
+
+desync_section:Slider({
+    name = "rotate x",
+    min = -180,
+    max = 180,
+    default = 0,
+    float = 0.01,
+    flag = "desync_rx",
+    callback = function(v) player_state.rx = math.rad(v) end,
+})
+
+desync_section:Slider({
+    name = "rotate y",
+    min = -180,
+    max = 180,
+    default = 0,
+    float = 0.01,
+    flag = "desync_ry",
+    callback = function(v) player_state.ry = math.rad(v) end,
+})
+
+desync_section:Slider({
+    name = "rotate z",
+    min = -180,
+    max = 180,
+    default = 0,
+    float = 0.01,
+    flag = "desync_rz",
+    callback = function(v) player_state.rz = math.rad(v) end,
+})
+
+desync_section:Toggle({
+    name = "random rotation",
+    default = false,
+    flag = "desync_random_rotation",
+    callback = function(v) player_state.random_rotation = v end,
+})
+
+desync_section:Toggle({
+    name = "random position",
+    default = false,
+    flag = "desync_random_position",
+    callback = function(v) player_state.random_position = v end,
+})
+
+desync_section:Slider({
+    name = "random range",
+    min = 0,
+    max = 25,
+    default = 5,
+    float = 0.01,
+    flag = "desync_random_range",
+    callback = function(v) player_state.random_range = v end,
+})
+
+desync_section:Separator("velocity")
+
+desync_section:Toggle({
+    name = "velocity desync",
+    default = false,
+    flag = "desync_velocity",
+    callback = function(v) player_state.velocity = v end,
+})
+
+desync_section:Slider({
+    name = "velocity x",
+    min = -200,
+    max = 200,
+    default = 0,
+    float = 0.01,
+    flag = "desync_vx",
+    callback = function(v) player_state.vx = v end,
+})
+
+desync_section:Slider({
+    name = "velocity y",
+    min = -200,
+    max = 200,
+    default = 0,
+    float = 0.01,
+    flag = "desync_vy",
+    callback = function(v) player_state.vy = v end,
+})
+
+desync_section:Slider({
+    name = "velocity z",
+    min = -200,
+    max = 200,
+    default = 0,
+    float = 0.01,
+    flag = "desync_vz",
+    callback = function(v) player_state.vz = v end,
+})
+
+desync_section:Separator("look vector")
+
+desync_section:Dropdown({
+    name = "look mode",
+    content = { "Up", "Down", "Straight", "Custom" },
+    default = "Straight",
+    flag = "desync_look_mode",
+    callback = function(v) player_state.look_mode = v end,
+})
+
+desync_section:Slider({
+    name = "custom pitch",
+    min = -89,
+    max = 89,
+    default = 89,
+    float = 0.01,
+    flag = "desync_look_pitch",
+    callback = function(v) player_state.look_pitch = v end,
+})
+
+desync_section:Label("shown on character: always on")
+
+desync_section:Toggle({
+    name = "ghost",
+    default = false,
+    flag = "desync_ghost",
+    callback = function(v) player_state.ghost = v end,
+})
+
+desync_section:ColorPicker({
+    name = "ghost color",
+    default = Color3.fromRGB(140, 135, 180),
+    flag = "desync_ghost_color",
+    callback = function(v) player_state.ghost_color = v end,
+})
+
+desync_section:Slider({
+    name = "ghost transparency",
+    min = 0,
+    max = 1,
+    default = 0.5,
+    float = 0.01,
+    flag = "desync_ghost_transparency",
+    callback = function(v) player_state.ghost_transparency = v end,
+})
+
+----------------------------------------------------------------------
+-- PLAYER: MOVEMENT
+----------------------------------------------------------------------
+
+movement_section:Toggle({
+    name = "speedhack",
+    default = false,
+    flag = "movement_speed",
+    callback = function(v) movement.speed = v end,
+})
+
+movement_section:Slider({
+    name = "speed",
+    min = 8,
+    max = 40,
+    default = 18.2,
+    float = 0.01,
+    flag = "movement_speed_value",
+    callback = function(v) movement.speed_value = v end,
+})
+
+movement_section:Toggle({
+    name = "flyhack",
+    default = false,
+    flag = "movement_fly",
+    callback = function(v) movement.fly = v end,
+})
+
+movement_section:Slider({
+    name = "fly speed",
+    min = 1,
+    max = 60,
+    default = 10,
+    float = 0.01,
+    flag = "movement_fly_speed",
+    callback = function(v) movement.fly_speed = v end,
+})
+
+movement_section:Slider({
+    name = "fly vertical speed",
+    min = 1,
+    max = 60,
+    default = 10,
+    float = 0.01,
+    flag = "movement_fly_y_speed",
+    callback = function(v) movement.fly_y_speed = v end,
+})
+
+movement_section:Toggle({
+    name = "bunny hop",
+    default = false,
+    flag = "movement_bhop",
+    callback = function(v) movement.bhop = v end,
+})
+
+movement_section:Slider({
+    name = "bunny hop velocity",
+    min = 1,
+    max = 100,
+    default = 22,
+    float = 0.01,
+    flag = "movement_bhop_velocity",
+    callback = function(v) movement.bhop_velocity = v end,
+})
+
+movement_section:Toggle({
+    name = "bunny hop boost",
+    default = false,
+    flag = "movement_bhop_boost",
+    callback = function(v) movement.bhop_boost = v end,
+})
+
+movement_section:Slider({
+    name = "boost speed",
+    min = 1,
+    max = 100,
+    default = 35,
+    float = 0.01,
+    flag = "movement_bhop_boost_speed",
+    callback = function(v) movement.bhop_boost_speed = v end,
+})
+
+movement_section:Toggle({
+    name = "no fall damage",
+    default = false,
+    flag = "movement_no_fall",
+    callback = function(v) movement.no_fall = v end,
+})
+
+movement_section:Toggle({
+    name = "walk on water",
+    default = false,
+    flag = "movement_jesus",
+    callback = function(v) movement.jesus = v end,
+})
+
+movement_section:Toggle({
+    name = "wallclimb",
+    default = false,
+    flag = "movement_wallclimb",
+    callback = function(v) movement.wallclimb = v end,
+})
+
+movement_section:Slider({
+    name = "climb speed",
+    min = 5,
+    max = 80,
+    default = 35,
+    float = 0.01,
+    flag = "movement_wallclimb_speed",
+    callback = function(v) movement.wallclimb_speed = v end,
+})
+
+movement_section:Toggle({
+    name = "no weight",
+    default = false,
+    flag = "movement_no_weight",
+    callback = function(v) movement.no_weight = v end,
+})
+
+movement_section:Toggle({
+    name = "remove animations",
+    default = false,
+    flag = "movement_no_animations",
+    callback = function(v)
+        movement.no_animations = v
+        pcall(function() movement.apply_remove_animations(v) end)
+    end,
+})
+
+----------------------------------------------------------------------
+-- PLAYER: VISUALS + EXTRAS
+----------------------------------------------------------------------
+
+visuals_section:Slider({
+    name = "character transparency",
+    min = 0,
+    max = 1,
+    default = 0,
+    float = 0.01,
+    flag = "pv_transparency",
+    callback = function(v) player_visuals.transparency = v end,
+})
+
+visuals_section:Toggle({
+    name = "override character color",
+    default = false,
+    flag = "pv_color_override",
+    callback = function(v) player_visuals.color_override = v end,
+})
+
+visuals_section:ColorPicker({
+    name = "character color",
+    default = Color3.new(1, 1, 1),
+    flag = "pv_color",
+    callback = function(v) player_visuals.color = v end,
+})
+
+visuals_section:Toggle({
+    name = "override character material",
+    default = false,
+    flag = "pv_material_override",
+    callback = function(v) player_visuals.material_override = v end,
+})
+
+visuals_section:Dropdown({
+    name = "character material",
+    content = {
+        "ForceField", "Neon", "SmoothPlastic", "Glass", "Plastic",
+        "Metal", "Foil", "DiamondPlate", "CorrodedMetal", "Cobblestone",
+    },
+    default = "ForceField",
+    flag = "pv_material",
+    callback = function(v) player_visuals.material = v end,
+})
+
+visuals_section:Separator("camera offset")
+
+visuals_section:Slider({
+    name = "camera x",
+    min = -20,
+    max = 20,
+    default = 0,
+    float = 0.01,
+    flag = "pv_cam_x",
+    callback = function(v) player_visuals.cam_x = v end,
+})
+
+visuals_section:Slider({
+    name = "camera y",
+    min = -20,
+    max = 20,
+    default = 0,
+    float = 0.01,
+    flag = "pv_cam_y",
+    callback = function(v) player_visuals.cam_y = v end,
+})
+
+visuals_section:Slider({
+    name = "camera z",
+    min = -20,
+    max = 20,
+    default = 0,
+    float = 0.01,
+    flag = "pv_cam_z",
+    callback = function(v) player_visuals.cam_z = v end,
+})
+
+----------------------------------------------------------------------
+-- PLAYER: EXTRAS
+----------------------------------------------------------------------
+
+local chat_spam = {
+    enabled = false,
+    mode = "continuous",       -- continuous / on kill
+    message = "gg ez",
+    delay = 0.5,
+}
+
+local unlock_doors = {
+    enabled = false,
+    range = 15,
+}
+
+do
+    local TextChatService = game:GetService("TextChatService")
+
+    local function send_chat(message)
+        pcall(function()
+            if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+                local channel = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+                if channel then
+                    channel:SendAsync(message)
+                elseif TextChatService.ChatInputBarConfiguration
+                    and TextChatService.ChatInputBarConfiguration.TargetTextChannel
+                then
+                    TextChatService.ChatInputBarConfiguration.TargetTextChannel:SendAsync(message)
+                end
+            else
+                local events = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+                local say = events and events:FindFirstChild("SayMessageRequest")
+                if say then
+                    say:FireServer(message, "All")
+                end
+            end
+        end)
+    end
+
+    task.spawn(function()
+        while cheat.alive do
+            if chat_spam.enabled and chat_spam.mode == "continuous" and chat_spam.message ~= "" then
+                send_chat(chat_spam.message)
+            end
+            task.wait(math.max(0.1, chat_spam.delay))
+        end
+    end)
+
+    task.spawn(function()
+        while cheat.alive do
+            task.wait(0.2)
+            if not (unlock_doors.enabled) then continue end
+            pcall(function()
+                local character = LocalPlayer.Character
+                local hrp = character and character:FindFirstChild("HumanoidRootPart")
+                if not hrp then return end
+                local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                local door_remote = remotes and remotes:FindFirstChild("Door")
+                if not door_remote then return end
+                for _, inst in pairs(Workspace:GetDescendants()) do
+                    if inst:IsA("Model") and inst:GetAttribute("DoorState") ~= nil then
+                        local state = inst:GetAttribute("DoorState")
+                        if state == 0 or state == 0.5 or state == 2 then
+                            local part = inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true)
+                            if part and (part.Position - hrp.Position).Magnitude <= unlock_doors.range then
+                                door_remote:FireServer(inst, 1, part.Position)
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end
+
+extras_section:Toggle({
+    name = "chat spammer",
+    default = false,
+    flag = "chat_spammer",
+    callback = function(v) chat_spam.enabled = v end,
+})
+
+extras_section:Dropdown({
+    name = "spam mode",
+    content = { "continuous", "on kill" },
+    default = "continuous",
+    flag = "chat_spammer_mode",
+    callback = function(v) chat_spam.mode = v end,
+})
+
+extras_section:Box({
+    placeholder = "message",
+    default = "gg ez",
+    flag = "chat_spammer_message",
+    callback = function(str)
+        if str and str ~= "" then chat_spam.message = str end
+    end,
+})
+
+extras_section:Slider({
+    name = "spam delay",
+    min = 0.1,
+    max = 5,
+    default = 0.5,
+    float = 0.01,
+    flag = "chat_spammer_delay",
+    callback = function(v) chat_spam.delay = v end,
+})
+
+extras_section:Separator("doors")
+
+extras_section:Toggle({
+    name = "unlock doors",
+    default = false,
+    flag = "unlock_doors",
+    callback = function(v) unlock_doors.enabled = v end,
+})
+
+extras_section:Slider({
+    name = "door range",
+    min = 5,
+    max = 40,
+    default = 15,
+    float = 0.01,
+    flag = "unlock_doors_range",
+    callback = function(v) unlock_doors.range = v end,
 })
 
 ----------------------------------------------------------------------
@@ -5472,7 +5507,7 @@ viewmodel_section:Slider({
     min = -5,
     max = 5,
     default = 0,
-    float = 2,
+    float = 0.01,
     flag = "viewmodel_x",
     callback = function(v)
         misc.viewmodel.x = v
@@ -5484,7 +5519,7 @@ viewmodel_section:Slider({
     min = -5,
     max = 5,
     default = 0,
-    float = 2,
+    float = 0.01,
     flag = "viewmodel_y",
     callback = function(v)
         misc.viewmodel.y = v
@@ -5496,7 +5531,7 @@ viewmodel_section:Slider({
     min = -5,
     max = 5,
     default = 0,
-    float = 2,
+    float = 0.01,
     flag = "viewmodel_z",
     callback = function(v)
         misc.viewmodel.z = v
@@ -5600,7 +5635,7 @@ sound_section:Slider({
     min = 1,
     max = 500,
     default = 100,
-    float = 1,
+    float = 0.01,
     flag = "custom_hitsound_vol",
     callback = function(v)
         misc.sounds.hit_volume = v / 100
@@ -5642,7 +5677,7 @@ sound_section:Slider({
     min = 1,
     max = 500,
     default = 100,
-    float = 1,
+    float = 0.01,
     flag = "custom_gunsound_vol",
     callback = function(v)
         misc.sounds.gun_volume = v / 100
@@ -5703,7 +5738,7 @@ sound_section:Slider({
     min = 10,
     max = 575,
     default = 50,
-    float = 1,
+    float = 0.01,
     flag = "freecam_speed",
     callback = function(v)
         misc.freecam.speed = v
@@ -5722,29 +5757,156 @@ sound_section:Toggle({
 ----------------------------------------------------------------------
 -- SETTINGS: CONFIG MANAGER
 ----------------------------------------------------------------------
--- The library saves the value of every option, so a config holds the whole
--- menu. The files live in the "centhackV2" folder of the executor.
+-- The configs are plain json files in the executor settings folder. Every
+-- value of the feature state is written, so a config holds the whole cheat.
+-- Nothing is written into a folder that is named after the place id.
 
-local config_name = "centhack"
-local config_universal = false
+local HttpService = game:GetService("HttpService")
+local CONFIG_FOLDER = "settings/centhackV2"
+
+local CONFIG_GROUPS = {
+    silent_aim = silent_aim,
+    gunmods = gunmods,
+    knifemods = knifemods,
+    misc = misc,
+    world = world,
+    ragebot = ragebot,
+    ug_resolver = ug_resolver,
+    esp_players = esp.settings.players,
+    esp_corpse = esp.settings.corpse,
+}
+
+local function encode_value(value)
+    if type(value) == "Color3" then
+        return { __type = "color", value = value:ToHex() }
+    end
+    if type(value) == "table" then
+        local out = {}
+        for k, v in pairs(value) do
+            local encoded = encode_value(v)
+            if encoded ~= nil then
+                out[tostring(k)] = encoded
+            end
+        end
+        return out
+    end
+    if type(value) == "number" or type(value) == "string" or type(value) == "boolean" then
+        return value
+    end
+    return nil
+end
+
+local function apply_saved(target, saved)
+    for k, v in pairs(saved) do
+        local current = target[k]
+        if type(v) == "table" and v.__type == "color" then
+            if type(current) == "Color3" then
+                target[k] = Color3.fromHex(v.value)
+            end
+        elseif type(v) == "table" and type(current) == "table" then
+            apply_saved(current, v)
+        elseif current ~= nil and type(current) == type(v) then
+            target[k] = v
+        end
+    end
+end
+
+local function config_path(name)
+    return CONFIG_FOLDER .. "/" .. name .. ".json"
+end
+
+local function save_config(name)
+    if not name or name == "" then
+        return false, "no name"
+    end
+    local data = {}
+    for group, tbl in pairs(CONFIG_GROUPS) do
+        data[group] = encode_value(tbl)
+    end
+    if not isfolder(CONFIG_FOLDER) then
+        makefolder(CONFIG_FOLDER)
+    end
+    local ok, err = pcall(function()
+        writefile(config_path(name), HttpService:JSONEncode(data))
+    end)
+    if not ok then
+        return false, tostring(err)
+    end
+    return true
+end
+
+local function load_config(name)
+    if not name or name == "" then
+        return false, "no name"
+    end
+    local path = config_path(name)
+    if not isfile(path) then
+        return false, "the config does not exist"
+    end
+    local ok, decoded = pcall(function()
+        return HttpService:JSONDecode(readfile(path))
+    end)
+    if not ok or type(decoded) ~= "table" then
+        return false, "the config is broken"
+    end
+    for group, tbl in pairs(CONFIG_GROUPS) do
+        local saved = decoded[group]
+        if type(saved) == "table" then
+            apply_saved(tbl, saved)
+        end
+    end
+    return true
+end
+
+local function delete_config(name)
+    if not name or name == "" then
+        return false, "no name"
+    end
+    local path = config_path(name)
+    if not isfile(path) then
+        return false, "the config does not exist"
+    end
+    delfile(path)
+    return true
+end
+
+local function list_configs()
+    local names = {}
+    if not isfolder(CONFIG_FOLDER) then
+        return names
+    end
+    for _, file in pairs(listfiles(CONFIG_FOLDER)) do
+        local name = tostring(file):match("([^/]+)$") or tostring(file)
+        if name:sub(-5) == ".json" then
+            name = name:sub(1, #name - 5)
+        end
+        if name ~= "" then
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+    return names
+end
+
+-- the config api is exposed so it can be used from the console too
+cheat.config = {
+    save = save_config,
+    load = load_config,
+    delete = delete_config,
+    list = list_configs,
+    folder = CONFIG_FOLDER,
+}
+
+local config_name = "default"
 
 config_section:Label("config manager")
 
 config_section:Box({
     placeholder = "config name",
-    default = "centhack",
+    default = "default",
     flag = "config_name",
     callback = function(str)
         config_name = str
-    end,
-})
-
-config_section:Toggle({
-    name = "universal (all places)",
-    default = false,
-    flag = "config_universal",
-    callback = function(v)
-        config_universal = v
     end,
 })
 
@@ -5761,21 +5923,17 @@ local config_list = config_section:Dropdown({
 })
 
 local function refresh_configs()
-    local ok, configs = pcall(function() return library:GetConfigs(config_universal) end)
-    if not ok or type(configs) ~= "table" then return end
-    table.sort(configs)
-    if #configs == 0 then
-        configs = { "no configs" }
+    local names = list_configs()
+    if #names == 0 then
+        names = { "no configs" }
     end
-    pcall(function() config_list:Refresh(configs) end)
+    pcall(function() config_list:Refresh(names) end)
 end
 
 config_section:Button({
     name = "save config",
     callback = function()
-        local name = config_name
-        if not name or name == "" then name = "centhack" end
-        local ok, err = pcall(function() library:SaveConfig(name, config_universal) end)
+        local ok, err = save_config(config_name)
         refresh_configs()
         if not ok then
             print("[centhack] could not save the config: " .. tostring(err))
@@ -5786,11 +5944,11 @@ config_section:Button({
 config_section:Button({
     name = "load config",
     callback = function()
-        local name = config_name
-        if not name or name == "" then name = "centhack" end
-        local ok, err = pcall(function() library:LoadConfig(name, config_universal) end)
+        local ok, err = load_config(config_name)
         if not ok then
             print("[centhack] could not load the config: " .. tostring(err))
+        else
+            esp.refresh()
         end
     end,
 })
@@ -5798,9 +5956,7 @@ config_section:Button({
 config_section:Button({
     name = "delete config",
     callback = function()
-        local name = config_name
-        if not name or name == "" then name = "centhack" end
-        local ok, err = pcall(function() library:DeleteConfig(name, config_universal) end)
+        local ok, err = delete_config(config_name)
         refresh_configs()
         if not ok then
             print("[centhack] could not delete the config: " .. tostring(err))
@@ -5811,40 +5967,6 @@ config_section:Button({
 config_section:Button({
     name = "refresh list",
     callback = refresh_configs,
-})
-
--- THEME ---------------------------------------------------------------------
-local themes = { "Default" }
-pcall(function()
-    local list = library:GetThemes()
-    if type(list) == "table" and #list > 0 then themes = list end
-end)
-
-theme_section:Dropdown({
-    name = "theme",
-    content = themes,
-    default = themes[1],
-    flag = "library_theme",
-    callback = function(v)
-        pcall(function() library:SetTheme(v) end)
-    end,
-})
-
-theme_section:Label("centhack v2")
-theme_section:Label("menu key: right shift")
-
-theme_section:Button({
-    name = "close menu",
-    callback = function()
-        library:Close()
-    end,
-})
-
-theme_section:Button({
-    name = "unload ui",
-    callback = function()
-        pcall(function() library:Unload() end)
-    end,
 })
 
 ----------------------------------------------------------------------
