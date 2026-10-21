@@ -375,56 +375,98 @@ local drawing = {} do
 
                     self.ClipsDescendants = true
 
-                    -- The content is moved by a fixed amount of pixels, the
-                    -- offset is clamped so the first and the last element stay
-                    -- reachable. The children keep their base position, the
-                    -- scroll offset is only the difference to it.
-                    local SCROLL_STEP = 34
+                    local function scroll(amount)
+                        local totalclippedobjs, currentclippedobj, docontinue = 0, nil, false
 
-                    -- The children of a list are placed at the position of the
-                    -- list plus their index, the same way the list layout does
-                    -- it, only the scroll offset is taken out of it.
-                    local function apply_scroll(self, offset)
                         for i, object in next, listchildren[self] do
-                            local base = listindexes[self][i] or 0
-                            local newpos = mtobjs[self].Position + Vector2.new(0, base - offset)
-                            object.Position = newpos
-                            childrenposupdates[object](objmts[object], newpos)
-                            custompropertysets[object]("AbsolutePosition", newpos)
-                        end
+                            if amount == 1 then
+                                if object.Position.Y > mtobjs[self].Position.Y then
+                                    if not istouching(object.Position, object.Size, mtobjs[self].Position, mtobjs[self].Size) then
+                                        if not currentclippedobj then
+                                            currentclippedobj = object
+                                        end
 
-                        if custompropertygets[mtobjs[self]]("ClipsDescendants") then
-                            for i, object in next, listchildren[self] do
-                                local visible = istouching(
-                                    object.Position, object.Size,
-                                    mtobjs[self].Position, mtobjs[self].Size)
-                                object.Visible = visible
-                                childrenvisupdates[objmts[object]](objmts[object], visible)
+                                        totalclippedobjs = totalclippedobjs + 1
+                                        docontinue = true
+                                    end
+                                end
+                            end
+
+                            if amount == -1 then
+                                if object.Position.Y <= mtobjs[self].Position.Y then
+                                    if not istouching(object.Position, object.Size, mtobjs[self].Position, mtobjs[self].Size) then
+                                        currentclippedobj = object
+                                        totalclippedobjs = totalclippedobjs + 1
+                                        docontinue = true
+                                    end
+                                end
                             end
                         end
-                    end
 
-                    local function scroll(amount)
-                        local total = listcontents[self] or 0
-                        local height = mtobjs[self].Size.Y
-                        local max_scroll = math.max(0, total - height)
-                        local current = -(scrollpositions[self] or 0)
-                        local target = math.clamp(
-                            current + (SCROLL_STEP * (amount > 0 and 1 or -1)),
-                            0, max_scroll)
+                        if docontinue then
+                            if amount > 0 then
+                                local poschange = -(currentclippedobj.Size.Y + objpaddings[self])
+                                local closestobj
 
-                        if math.abs(target - current) < 0.01 then
-                            return false
+                                for i, object in next, objchildren[self] do
+                                    if istouching(object.Position + Vector2.new(0, poschange), object.Size, mtobjs[self].Position, mtobjs[self].Size) then
+                                        closestobj = object
+                                        break
+                                    end
+                                end
+
+                                if not closestobj then closestobj = currentclippedobj end
+                                local diff = (Vector2.new(0, mtobjs[self].Position.Y) - Vector2.new(0, (closestobj.Position.Y + poschange + objpaddings[self]))).Magnitude
+
+                                if custompropertygets[mtobjs[self]]("ClipsDescendants") then
+                                    for i, object in next, objchildren[self] do
+                                        if not istouching(object.Position + Vector2.new(0, poschange - diff + objpaddings[self]), object.Size, mtobjs[self].Position, mtobjs[self].Size) then
+                                            object.Visible = false
+                                            childrenvisupdates[objmts[object]](objmts[object], false)
+                                        else
+                                            object.Visible = true
+                                            childrenvisupdates[objmts[object]](objmts[object], true)
+                                        end
+                                    end
+                                end
+
+                                scrollpositions[self] = scrollpositions[self] + (poschange - diff + objpaddings[self])
+
+                                for i, object in next, objchildren[self] do
+                                    childrenposupdates[objmts[object]](objmts[object], object.Position + Vector2.new(0, poschange - diff + objpaddings[self]))
+                                    object.Position = object.Position + Vector2.new(0, poschange - diff + objpaddings[self])
+                                end
+                            else
+                                local poschange = currentclippedobj.Size.Y + objpaddings[self]
+
+                                if custompropertygets[mtobjs[self]]("ClipsDescendants") then
+                                    for i, object in next, objchildren[self] do
+                                        if not istouching(object.Position + Vector2.new(0, poschange), object.Size, mtobjs[self].Position, mtobjs[self].Size) then
+                                            object.Visible = false
+                                            childrenvisupdates[objmts[object]](objmts[object], false)
+                                        else
+                                            object.Visible = true
+                                            childrenvisupdates[objmts[object]](objmts[object], true)
+                                        end
+                                    end
+                                end
+
+                                scrollpositions[self] = scrollpositions[self] + poschange
+
+                                for i, object in next, objchildren[self] do
+                                    childrenposupdates[objmts[object]](objmts[object], object.Position + Vector2.new(0, poschange))
+                                    object.Position = object.Position + Vector2.new(0, poschange)
+                                end
+                            end
                         end
 
-                        scrollpositions[self] = -target
-                        apply_scroll(self, target)
-                        return true
+                        return docontinue
                     end
 
                     refreshscrolling = function()
-                        scrollpositions[self] = 0
-                        apply_scroll(self, 0)
+                        repeat
+                        until
+                            not scroll(-1)
                     end
 
                     self.InputChanged:Connect(function(input)
