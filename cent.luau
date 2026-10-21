@@ -235,8 +235,6 @@ end)
 ----------------------------------------------------------------------
 -- The library is fetched from the repository. The cache buster is needed
 -- because the executor keeps the file it downloaded on an earlier run.
--- The Plex font is not available everywhere, the library hardcodes it, so
--- the source is patched to fall back to a font that always exists.
 
 local LIB_URL = "https://raw.githubusercontent.com/SanyaSigger/centhack/main/lib/src.lua"
 
@@ -245,49 +243,6 @@ local function load_void()
     if not source or #source < 100 then
         error("centhack: could not download the ui library")
     end
-    source = source:gsub("Drawing%.Fonts%.Plex", "(Drawing.Fonts.Plex or Drawing.Fonts.Code)")
-    -- the color picker reads the color channels in lower case, a Color3 only
-    -- has R, G and B
-    source = source:gsub("hsv%.r", "hsv.R"):gsub("hsv%.g", "hsv.G"):gsub("hsv%.b", "hsv.B")
-
-    -- the scroll of the columns is broken: the magnitude of a Vector2 is
-    -- "Magnitude" and the object the scroll is based on can be missing, so
-    -- every option below the window was unreachable
-    local function replace_plain(text, from, to)
-        local start = text:find(from, 1, true)
-        if not start then return text end
-        return text:sub(1, start - 1) .. to .. text:sub(start + #from)
-    end
-    source = replace_plain(source,
-        "local diff = (Vector2.new(0, mtobjs[self].Position.Y)",
-        "if not closestobj then closestobj = currentclippedobj end local diff = (Vector2.new(0, mtobjs[self].Position.Y)")
-    source = replace_plain(source, ")).magnitude", ")).Magnitude")
-
-    -- the setter of every option is exposed, a loaded config is pushed into
-    -- the menu so the sliders show the loaded values
-    source = replace_plain(source,
-        "\n    return windowtypes\nend\n\nreturn library",
-        "\n    return windowtypes\nend\n\nlibrary.setters = flags\n\nreturn library")
-
-    -- The library applies the properties in a random order, so an element can
-    -- be parented before it has its size. The list layout then measures it
-    -- with the size 0 and every element of a section overlaps the next one.
-    -- The size is applied first so the layout is always correct.
-    source = replace_plain(source, [[
-function utility.create(class, properties)
-    local obj = drawing:new(class)
-
-    for prop, v in next, properties do]], [[
-function utility.create(class, properties)
-    local obj = drawing:new(class)
-
-    if properties and properties.Size then
-        obj.Size = properties.Size
-        properties = table.clone(properties)
-        properties.Size = nil
-    end
-
-    for prop, v in next, properties do]])
     local chunk, err = loadstring(source, "void")
     if not chunk then
         error("centhack: could not compile the ui library: " .. tostring(err))
@@ -426,38 +381,85 @@ misc = {
     hitmarker_lifetime = 0.7,
     remove_muzzle_flash = false,
 }
-------------------------------------------------------------------------
+----------------------------------------------------------------------
 -- ESP
 ----------------------------------------------------------------------
--- A small, self written player and corpse esp. Every player gets a 2d box
--- that is built from the head and the root part, so it always fits the
--- character no matter how it is posed.
+-- The player esp: a 2d box that is built from the head and the root part,
+-- the text elements, a gradient health bar, the skeleton and the chams.
+-- The corpse esp writes the name of a dropped body.
 
 esp = {} do
     local targets = {}
     local corpses = {}
 
+    esp.main_settings = {
+        textSize = 13,
+        textFont = Drawing.Fonts.Monospace,
+        infiniterange = false,
+    }
+
     esp.settings = {
         players = {
             enabled = false,
             box = true,
+            box_fill = false,
+            box_outline = false,
+            box_outline_vis = false,
             box_color = Color3.new(1, 1, 1),
-            box_thickness = 1,
+            box_fill_color = Color3.new(1, 0, 0),
+            box_outline_color = Color3.new(0, 0, 0),
+            box_outline_vis_color = Color3.new(0, 0, 0),
             name = true,
+            name_outline = false,
+            name_outline_vis = false,
             name_color = Color3.new(1, 1, 1),
-            distance = true,
-            distance_color = Color3.new(1, 1, 1),
+            name_outline_color = Color3.new(0, 0, 0),
+            name_outline_vis_color = Color3.new(0, 0, 0),
+            displayname = false,
+            displayname_outline = false,
+            displayname_outline_vis = false,
+            displayname_color = Color3.new(1, 1, 1),
+            displayname_outline_color = Color3.new(0, 0, 0),
+            displayname_outline_vis_color = Color3.new(0, 0, 0),
+            dist = true,
+            dist_outline = false,
+            dist_outline_vis = false,
+            dist_color = Color3.new(1, 1, 1),
+            dist_outline_color = Color3.new(0, 0, 0),
+            dist_outline_vis_color = Color3.new(0, 0, 0),
+            weapon = false,
+            weapon_outline = false,
+            weapon_outline_vis = false,
+            weapon_color = Color3.new(1, 1, 1),
+            weapon_outline_color = Color3.new(0, 0, 0),
+            weapon_outline_vis_color = Color3.new(0, 0, 0),
             health = true,
-            health_color = Color3.new(0, 1, 0),
+            health_number = false,
+            health_gradient = true,
+            health_color_top = Color3.new(0, 1, 0),
+            health_color_bottom = Color3.new(1, 0, 0),
+            health_color = Color3.new(1, 1, 1),
+            health_thickness = 2,
             skeleton = false,
             skeleton_color = Color3.new(1, 1, 1),
-            max_distance = 0,          -- 0 = no limit
+            chams = false,
+            chams_visible_only = false,
+            chams_material = "Neon",
+            chams_fill_color = Color3.new(1, 1, 1),
+            chams_outline_color = Color3.new(1, 1, 1),
+            chams_fill_transparency = 0.5,
+            chams_outline_transparency = 0,
+            high_kd_marker = false,
+            high_kd_outline_color = Color3.fromRGB(255, 0, 0),
+            max_distance = 0,
         },
         corpse = {
             enabled = false,
             name = true,
             distance = false,
             color = Color3.fromRGB(0, 255, 0),
+            outline = false,
+            outline_color = Color3.new(0, 0, 0),
         },
     }
 
@@ -481,27 +483,67 @@ esp = {} do
         return screen, on_screen
     end
 
+    local function get_gun(player)
+        local rep = _FindFirstChild(ReplicatedStorage.Players, player.Name)
+        if rep and _FindFirstChild(rep, "Status") and _FindFirstChild(rep.Status, "GameplayVariables")
+            and _FindFirstChild(rep.Status.GameplayVariables, "EquippedTool")
+            and rep.Status.GameplayVariables.EquippedTool.Value
+        then
+            return tostring(rep.Status.GameplayVariables.EquippedTool.Value)
+        end
+        return "None"
+    end
+
+    local function get_high_kd(player)
+        local rep = _FindFirstChild(ReplicatedStorage.Players, player.Name)
+        local stats = rep and (rep:FindFirstChild("WipeStatistics", true) or rep:FindFirstChild("Statistics", true))
+        if not stats then return false end
+        local kills = stats:GetAttribute("Kills") or 0
+        local deaths = stats:GetAttribute("Deaths") or 0
+        return (kills / math.max(1, deaths)) > 5
+    end
+
     local function create_player_target(player)
         local obj = {
             box = Drawing.new("Square"),
+            box_fill = Drawing.new("Square"),
+            box_outline = Drawing.new("Square"),
             name = Drawing.new("Text"),
+            displayname = Drawing.new("Text"),
             distance = Drawing.new("Text"),
+            weapon = Drawing.new("Text"),
+            health_number = Drawing.new("Text"),
             health_bg = Drawing.new("Square"),
             health = Drawing.new("Square"),
         }
         obj.box.Visible = false
         obj.box.Filled = false
-        obj.name.Visible = false
-        obj.name.Center = true
-        obj.name.Outline = true
-        obj.distance.Visible = false
-        obj.distance.Center = true
-        obj.distance.Outline = true
+        obj.box_fill.Visible = false
+        obj.box_fill.Filled = true
+        obj.box_outline.Visible = false
+        obj.box_outline.Filled = false
+        obj.box_outline.Thickness = 3
+        for _, key in ipairs({ "name", "displayname", "distance", "weapon", "health_number" }) do
+            obj[key].Visible = false
+            obj[key].Center = true
+            obj[key].Outline = false
+            obj[key].OutlineColor = Color3.new(0, 0, 0)
+        end
         obj.health_bg.Visible = false
         obj.health_bg.Filled = true
         obj.health_bg.Transparency = 0.4
         obj.health.Visible = false
         obj.health.Filled = true
+
+        -- the health bar is drawn in segments, every segment gets its own
+        -- color so the bar is a gradient
+        local health_segments = {}
+        for i = 1, 10 do
+            local line = Drawing.new("Line")
+            line.Visible = false
+            line.Thickness = 2
+            health_segments[i] = line
+        end
 
         local skeleton = {}
         for i = 1, #SKELETON_BONES do
@@ -510,15 +552,38 @@ esp = {} do
             skeleton[i] = line
         end
 
-        local entry = { obj = obj, skeleton = skeleton, player = player }
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "CenthackESPChams"
+        highlight.FillTransparency = 1
+        highlight.OutlineTransparency = 1
+        highlight.Enabled = false
+        pcall(function()
+            local ok, coregui = pcall(game.GetService, game, "CoreGui")
+            local parent = (ok and coregui and coregui:FindFirstChild("RobloxGui"))
+                or LocalPlayer:WaitForChild("PlayerGui")
+            highlight.Parent = parent
+        end)
+
+        local entry = {
+            obj = obj,
+            health_segments = health_segments,
+            skeleton = skeleton,
+            highlight = highlight,
+            player = player,
+            last_gun = nil,
+            last_gun_time = 0,
+            last_health = nil,
+            cheater = false,
+            kd_time = 0,
+            is_vis = false,
+            last_vis_check = 0,
+        }
 
         local function hide()
-            obj.box.Visible = false
-            obj.name.Visible = false
-            obj.distance.Visible = false
-            obj.health_bg.Visible = false
-            obj.health.Visible = false
-            for i = 1, #skeleton do skeleton[i].Visible = false end
+            for _, v in pairs(obj) do v.Visible = false end
+            for _, v in ipairs(health_segments) do v.Visible = false end
+            for _, v in ipairs(skeleton) do v.Visible = false end
+            highlight.Enabled = false
         end
         entry.hide = hide
 
@@ -572,48 +637,157 @@ esp = {} do
             local x = left - 9
             local y = top - 4
 
-            if settings.box then
+            -- the visibility is only checked when a "visible" color is used
+            if settings.box_outline_vis or settings.name_outline_vis
+                or settings.displayname_outline_vis or settings.dist_outline_vis
+                or settings.weapon_outline_vis
+            then
+                if os.clock() - entry.last_vis_check >= 0.15 then
+                    entry.last_vis_check = os.clock()
+                    entry.is_vis = cheat.utility.is_visible(
+                        camera.CFrame, character, head) or false
+                end
+            else
+                entry.is_vis = false
+            end
+
+            -- the high k/d marker is cached, it is not worth a lookup every frame
+            if settings.high_kd_marker then
+                if os.clock() - entry.kd_time >= 2 then
+                    entry.kd_time = os.clock()
+                    entry.cheater = get_high_kd(player) or false
+                end
+            else
+                entry.cheater = false
+            end
+
+            -- the box
+            if settings.box or settings.box_fill or settings.box_outline then
                 obj.box.Position = _Vector2new(x, y)
                 obj.box.Size = _Vector2new(width, height)
                 obj.box.Color = settings.box_color
-                obj.box.Thickness = settings.box_thickness
-                obj.box.Visible = true
+                obj.box.Visible = settings.box
+
+                obj.box_fill.Position = _Vector2new(x, y)
+                obj.box_fill.Size = _Vector2new(width, height)
+                obj.box_fill.Color = settings.box_fill_color
+                obj.box_fill.Visible = settings.box_fill
+
+                obj.box_outline.Position = _Vector2new(x - 1, y - 1)
+                obj.box_outline.Size = _Vector2new(width + 2, height + 2)
+                obj.box_outline.Visible = settings.box_outline
+                if entry.cheater then
+                    obj.box_outline.Color = settings.high_kd_outline_color
+                    obj.box_outline.Transparency = 1
+                elseif settings.box_outline_vis and entry.is_vis then
+                    obj.box_outline.Color = settings.box_outline_vis_color
+                    obj.box_outline.Transparency = 1
+                else
+                    obj.box_outline.Color = settings.box_outline_color
+                    obj.box_outline.Transparency = 1
+                end
             else
                 obj.box.Visible = false
+                obj.box_fill.Visible = false
+                obj.box_outline.Visible = false
             end
 
-            if settings.name then
-                obj.name.Text = player.DisplayName
-                obj.name.Position = _Vector2new(x + width / 2, y - 8)
-                obj.name.Color = settings.name_color
-                obj.name.Visible = true
-            else
-                obj.name.Visible = false
-            end
+            -- the text
+            local font = esp.main_settings.textFont
+            local size = esp.main_settings.textSize
 
-            if settings.distance then
-                obj.distance.Text = string.format("%d m", mathfloor(distance / 3))
-                obj.distance.Position = _Vector2new(x + width / 2, y + height + 4)
-                obj.distance.Color = settings.distance_color
-                obj.distance.Visible = true
-            else
-                obj.distance.Visible = false
-            end
+            obj.name.Text = player.Name
+            obj.name.Position = _Vector2new(x + width / 2, y - 8)
+            obj.name.Color = settings.name_color
+            obj.name.Size = size
+            obj.name.Font = font
+            obj.name.Outline = settings.name_outline
+            obj.name.OutlineColor = (settings.name_outline_vis and entry.is_vis)
+                and settings.name_outline_vis_color or settings.name_outline_color
+            obj.name.Visible = settings.name
 
+            obj.displayname.Text = player.DisplayName
+            obj.displayname.Position = _Vector2new(x + width / 2, y - 8 - size - 2)
+            obj.displayname.Color = settings.displayname_color
+            obj.displayname.Size = size
+            obj.displayname.Font = font
+            obj.displayname.Outline = settings.displayname_outline
+            obj.displayname.OutlineColor = (settings.displayname_outline_vis and entry.is_vis)
+                and settings.displayname_outline_vis_color or settings.displayname_outline_color
+            obj.displayname.Visible = settings.displayname
+                and player.DisplayName ~= player.Name
+
+            obj.distance.Text = string.format("%d m", mathfloor(distance / 3))
+            obj.distance.Position = _Vector2new(x + width / 2, y + height + 4)
+            obj.distance.Color = settings.dist_color
+            obj.distance.Size = size
+            obj.distance.Font = font
+            obj.distance.Outline = settings.dist_outline
+            obj.distance.OutlineColor = (settings.dist_outline_vis and entry.is_vis)
+                and settings.dist_outline_vis_color or settings.dist_outline_color
+            obj.distance.Visible = settings.dist
+
+            if os.clock() - entry.last_gun_time > 0.5 then
+                entry.last_gun_time = os.clock()
+                entry.last_gun = get_gun(player)
+            end
+            obj.weapon.Text = entry.last_gun or "None"
+            obj.weapon.Position = _Vector2new(x + width / 2, y + height + 4 + size + 2)
+            obj.weapon.Color = settings.weapon_color
+            obj.weapon.Size = size
+            obj.weapon.Font = font
+            obj.weapon.Outline = settings.weapon_outline
+            obj.weapon.OutlineColor = (settings.weapon_outline_vis and entry.is_vis)
+                and settings.weapon_outline_vis_color or settings.weapon_outline_color
+            obj.weapon.Visible = settings.weapon
+
+            -- the health bar with a gradient
+            local percent = math.clamp(humanoid.Health / math.max(1, humanoid.MaxHealth), 0, 1)
             if settings.health then
-                local percent = math.clamp(humanoid.Health / math.max(1, humanoid.MaxHealth), 0, 1)
-                obj.health_bg.Position = _Vector2new(x - 5, y)
-                obj.health_bg.Size = _Vector2new(3, height)
+                local bar_x = x - 5
+                local bar_top = y
+                local bar_bottom = y + height
+                obj.health_bg.Position = _Vector2new(bar_x, bar_top)
+                obj.health_bg.Size = _Vector2new(settings.health_thickness, height)
                 obj.health_bg.Visible = true
-                obj.health.Position = _Vector2new(x - 5, y + height * (1 - percent))
-                obj.health.Size = _Vector2new(3, height * percent)
-                obj.health.Color = settings.health_color
-                obj.health.Visible = percent > 0
+
+                for i = 1, 10 do
+                    local line = health_segments[i]
+                    local seg_start = (i - 1) / 10
+                    local seg_end = i / 10
+                    if seg_start < percent then
+                        local capped = seg_end
+                        if i == math.ceil(percent * 10) then capped = percent end
+                        local y1 = bar_bottom - (bar_bottom - bar_top) * seg_start
+                        local y2 = bar_bottom - (bar_bottom - bar_top) * capped
+                        line.From = _Vector2new(bar_x, y1)
+                        line.To = _Vector2new(bar_x, y2)
+                        -- the gradient goes from the bottom color to the top color
+                        local ratio = settings.health_gradient and (1 - capped) or 0
+                        line.Color = settings.health_color_bottom:Lerp(settings.health_color_top, ratio)
+                        line.Thickness = settings.health_thickness
+                        line.Visible = true
+                    else
+                        line.Visible = false
+                    end
+                end
             else
                 obj.health_bg.Visible = false
-                obj.health.Visible = false
+                for i = 1, 10 do health_segments[i].Visible = false end
             end
 
+            if settings.health_number then
+                obj.health_number.Text = tostring(mathfloor(humanoid.Health))
+                obj.health_number.Position = _Vector2new(x - 8, y + height / 2)
+                obj.health_number.Color = settings.health_color
+                obj.health_number.Size = size
+                obj.health_number.Font = font
+                obj.health_number.Visible = true
+            else
+                obj.health_number.Visible = false
+            end
+
+            -- the skeleton
             if settings.skeleton then
                 for i = 1, #SKELETON_BONES do
                     local bone = SKELETON_BONES[i]
@@ -639,6 +813,20 @@ esp = {} do
             else
                 for i = 1, #skeleton do skeleton[i].Visible = false end
             end
+
+            -- the chams
+            if settings.chams then
+                highlight.Adornee = character
+                highlight.Enabled = true
+                highlight.DepthMode = settings.chams_visible_only
+                    and Enum.HighlightDepthMode.Occluded or Enum.HighlightDepthMode.AlwaysOnTop
+                highlight.FillColor = settings.chams_fill_color
+                highlight.FillTransparency = settings.chams_fill_transparency
+                highlight.OutlineColor = settings.chams_outline_color
+                highlight.OutlineTransparency = settings.chams_outline_transparency
+            else
+                highlight.Enabled = false
+            end
         end)
 
         targets[player] = entry
@@ -648,7 +836,7 @@ esp = {} do
         local obj = { name = Drawing.new("Text") }
         obj.name.Visible = false
         obj.name.Center = true
-        obj.name.Outline = true
+        obj.name.Outline = false
 
         local entry = { obj = obj, model = model }
 
@@ -680,6 +868,10 @@ esp = {} do
             obj.name.Text = text
             obj.name.Position = _Vector2new(screen.X, screen.Y)
             obj.name.Color = settings.color
+            obj.name.Outline = settings.outline
+            obj.name.OutlineColor = settings.outline_color
+            obj.name.Size = esp.main_settings.textSize
+            obj.name.Font = esp.main_settings.textFont
             obj.name.Visible = true
         end)
 
@@ -691,7 +883,9 @@ esp = {} do
         if not entry then return end
         entry.connection:Disconnect()
         for _, v in pairs(entry.obj) do pcall(function() v:Remove() end) end
-        for _, v in pairs(entry.skeleton) do pcall(function() v:Remove() end) end
+        for _, v in ipairs(entry.health_segments) do pcall(function() v:Remove() end) end
+        for _, v in ipairs(entry.skeleton) do pcall(function() v:Remove() end) end
+        pcall(function() entry.highlight:Destroy() end)
         targets[player] = nil
     end
 
@@ -730,13 +924,13 @@ esp = {} do
         end
     end
 
+    -- re-applies every setting to every live target
     esp.refresh = function()
         for _, entry in pairs(targets) do
             if entry.hide then entry.hide() end
         end
     end
 end
-
 --------------------------------------------------------------------
 -- TRACERS
 ----------------------------------------------------------------------
@@ -4194,6 +4388,49 @@ main_section:Slider({
     end,
 })
 
+main_section:Separator("ragebot")
+
+local ragebot_toggle = main_section:Toggle({
+    name = "ragebot",
+    default = false,
+    flag = "ragebot_enabled",
+    callback = function(v)
+        ragebot.enabled = v
+    end,
+})
+
+main_section:Keybind({
+    name = "ragebot bind",
+    default = "None",
+    flag = "ragebot_key",
+    callback = function(key, fromsetting)
+        if fromsetting then return end
+        ragebot.enabled = not ragebot.enabled
+        ragebot_toggle:Toggle(ragebot.enabled)
+    end,
+})
+
+main_section:Slider({
+    name = "ragebot range",
+    min = 1,
+    max = 4000,
+    default = 4000,
+    float = 0.01,
+    flag = "ragebot_range",
+    callback = function(v)
+        ragebot.range = v
+    end,
+})
+
+main_section:Toggle({
+    name = "ragebot auto tb",
+    default = false,
+    flag = "ragebot_autotb",
+    callback = function(v)
+        ragebot.auto_tb = v
+    end,
+})
+
 main_section:Toggle({
     name = "wallbang",
     default = false,
@@ -4302,46 +4539,7 @@ rage_section:Slider({
     end,
 })
 
-local ragebot_toggle = rage_section:Toggle({
-    name = "ragebot",
-    default = false,
-    flag = "ragebot_enabled",
-    callback = function(v)
-        ragebot.enabled = v
-    end,
-})
 
-rage_section:Keybind({
-    name = "ragebot bind",
-    default = "None",
-    flag = "ragebot_key",
-    callback = function(key, fromsetting)
-        if fromsetting then return end
-        ragebot.enabled = not ragebot.enabled
-        ragebot_toggle:Toggle(ragebot.enabled)
-    end,
-})
-
-rage_section:Slider({
-    name = "ragebot range",
-    min = 1,
-    max = 4000,
-    default = 4000,
-    float = 0.01,
-    flag = "ragebot_range",
-    callback = function(v)
-        ragebot.range = v
-    end,
-})
-
-rage_section:Toggle({
-    name = "ragebot auto tb",
-    default = false,
-    flag = "ragebot_autotb",
-    callback = function(v)
-        ragebot.auto_tb = v
-    end,
-})
 
 ----------------------------------------------------------------------
 -- MAIN: weapon mods
@@ -4513,6 +4711,7 @@ esp_section:Toggle({
     end,
 })
 
+-- BOX
 esp_section:Separator("box")
 
 esp_section:Toggle({
@@ -4522,6 +4721,27 @@ esp_section:Toggle({
     callback = function(v) es.box = v end,
 })
 
+esp_section:Toggle({
+    name = "box fill",
+    default = false,
+    flag = "esp_box_fill",
+    callback = function(v) es.box_fill = v end,
+})
+
+esp_section:Toggle({
+    name = "box outline",
+    default = false,
+    flag = "esp_box_outline",
+    callback = function(v) es.box_outline = v end,
+})
+
+esp_section:Toggle({
+    name = "box outline (visible)",
+    default = false,
+    flag = "esp_box_outline_vis",
+    callback = function(v) es.box_outline_vis = v end,
+})
+
 esp_section:ColorPicker({
     name = "box color",
     default = Color3.new(1, 1, 1),
@@ -4529,23 +4749,49 @@ esp_section:ColorPicker({
     callback = function(v) es.box_color = v end,
 })
 
-esp_section:Slider({
-    name = "box thickness",
-    min = 1,
-    max = 5,
-    default = 1,
-    float = 1,
-    flag = "esp_box_thickness",
-    callback = function(v) es.box_thickness = v end,
+esp_section:ColorPicker({
+    name = "box fill color",
+    default = Color3.new(1, 0, 0),
+    flag = "esp_box_fill_color",
+    callback = function(v) es.box_fill_color = v end,
 })
 
-esp_section:Separator("text")
+esp_section:ColorPicker({
+    name = "box outline color",
+    default = Color3.new(0, 0, 0),
+    flag = "esp_box_outline_color",
+    callback = function(v) es.box_outline_color = v end,
+})
+
+esp_section:ColorPicker({
+    name = "visible box outline color",
+    default = Color3.new(0, 0, 0),
+    flag = "esp_box_outline_vis_color",
+    callback = function(v) es.box_outline_vis_color = v end,
+})
+
+-- NAME
+esp_section:Separator("name")
 
 esp_section:Toggle({
     name = "name",
     default = true,
     flag = "esp_name",
     callback = function(v) es.name = v end,
+})
+
+esp_section:Toggle({
+    name = "name outline",
+    default = false,
+    flag = "esp_name_outline",
+    callback = function(v) es.name_outline = v end,
+})
+
+esp_section:Toggle({
+    name = "name outline (visible)",
+    default = false,
+    flag = "esp_name_outline_vis",
+    callback = function(v) es.name_outline_vis = v end,
 })
 
 esp_section:ColorPicker({
@@ -4555,20 +4801,156 @@ esp_section:ColorPicker({
     callback = function(v) es.name_color = v end,
 })
 
+esp_section:ColorPicker({
+    name = "name outline color",
+    default = Color3.new(0, 0, 0),
+    flag = "esp_name_outline_color",
+    callback = function(v) es.name_outline_color = v end,
+})
+
+esp_section:ColorPicker({
+    name = "visible name outline color",
+    default = Color3.new(0, 0, 0),
+    flag = "esp_name_outline_vis_color",
+    callback = function(v) es.name_outline_vis_color = v end,
+})
+
+-- DISPLAY NAME
+esp_section:Separator("display name")
+
+esp_section:Toggle({
+    name = "display name",
+    default = false,
+    flag = "esp_displayname",
+    callback = function(v) es.displayname = v end,
+})
+
+esp_section:Toggle({
+    name = "display name outline",
+    default = false,
+    flag = "esp_displayname_outline",
+    callback = function(v) es.displayname_outline = v end,
+})
+
+esp_section:Toggle({
+    name = "display name outline (visible)",
+    default = false,
+    flag = "esp_displayname_outline_vis",
+    callback = function(v) es.displayname_outline_vis = v end,
+})
+
+esp_section:ColorPicker({
+    name = "display name color",
+    default = Color3.new(1, 1, 1),
+    flag = "esp_displayname_color",
+    callback = function(v) es.displayname_color = v end,
+})
+
+esp_section:ColorPicker({
+    name = "display name outline color",
+    default = Color3.new(0, 0, 0),
+    flag = "esp_displayname_outline_color",
+    callback = function(v) es.displayname_outline_color = v end,
+})
+
+esp_section:ColorPicker({
+    name = "visible display name outline color",
+    default = Color3.new(0, 0, 0),
+    flag = "esp_displayname_outline_vis_color",
+    callback = function(v) es.displayname_outline_vis_color = v end,
+})
+
+-- DISTANCE
+esp_section:Separator("distance")
+
 esp_section:Toggle({
     name = "distance",
     default = true,
     flag = "esp_distance",
-    callback = function(v) es.distance = v end,
+    callback = function(v) es.dist = v end,
+})
+
+esp_section:Toggle({
+    name = "distance outline",
+    default = false,
+    flag = "esp_distance_outline",
+    callback = function(v) es.dist_outline = v end,
+})
+
+esp_section:Toggle({
+    name = "distance outline (visible)",
+    default = false,
+    flag = "esp_distance_outline_vis",
+    callback = function(v) es.dist_outline_vis = v end,
 })
 
 esp_section:ColorPicker({
     name = "distance color",
     default = Color3.new(1, 1, 1),
     flag = "esp_distance_color",
-    callback = function(v) es.distance_color = v end,
+    callback = function(v) es.dist_color = v end,
 })
 
+esp_section:ColorPicker({
+    name = "distance outline color",
+    default = Color3.new(0, 0, 0),
+    flag = "esp_distance_outline_color",
+    callback = function(v) es.dist_outline_color = v end,
+})
+
+esp_section:ColorPicker({
+    name = "visible distance outline color",
+    default = Color3.new(0, 0, 0),
+    flag = "esp_distance_outline_vis_color",
+    callback = function(v) es.dist_outline_vis_color = v end,
+})
+
+-- WEAPON
+esp_section:Separator("weapon")
+
+esp_section:Toggle({
+    name = "weapon",
+    default = false,
+    flag = "esp_weapon",
+    callback = function(v) es.weapon = v end,
+})
+
+esp_section:Toggle({
+    name = "weapon outline",
+    default = false,
+    flag = "esp_weapon_outline",
+    callback = function(v) es.weapon_outline = v end,
+})
+
+esp_section:Toggle({
+    name = "weapon outline (visible)",
+    default = false,
+    flag = "esp_weapon_outline_vis",
+    callback = function(v) es.weapon_outline_vis = v end,
+})
+
+esp_section:ColorPicker({
+    name = "weapon color",
+    default = Color3.new(1, 1, 1),
+    flag = "esp_weapon_color",
+    callback = function(v) es.weapon_color = v end,
+})
+
+esp_section:ColorPicker({
+    name = "weapon outline color",
+    default = Color3.new(0, 0, 0),
+    flag = "esp_weapon_outline_color",
+    callback = function(v) es.weapon_outline_color = v end,
+})
+
+esp_section:ColorPicker({
+    name = "visible weapon outline color",
+    default = Color3.new(0, 0, 0),
+    flag = "esp_weapon_outline_vis_color",
+    callback = function(v) es.weapon_outline_vis_color = v end,
+})
+
+-- HEALTH
 esp_section:Separator("health")
 
 esp_section:Toggle({
@@ -4578,13 +4960,52 @@ esp_section:Toggle({
     callback = function(v) es.health = v end,
 })
 
+esp_section:Toggle({
+    name = "health number",
+    default = false,
+    flag = "esp_health_number",
+    callback = function(v) es.health_number = v end,
+})
+
+esp_section:Toggle({
+    name = "health gradient",
+    default = true,
+    flag = "esp_health_gradient",
+    callback = function(v) es.health_gradient = v end,
+})
+
 esp_section:ColorPicker({
-    name = "health color",
+    name = "health color top",
     default = Color3.new(0, 1, 0),
+    flag = "esp_health_top",
+    callback = function(v) es.health_color_top = v end,
+})
+
+esp_section:ColorPicker({
+    name = "health color bottom",
+    default = Color3.new(1, 0, 0),
+    flag = "esp_health_bottom",
+    callback = function(v) es.health_color_bottom = v end,
+})
+
+esp_section:ColorPicker({
+    name = "health number color",
+    default = Color3.new(1, 1, 1),
     flag = "esp_health_color",
     callback = function(v) es.health_color = v end,
 })
 
+esp_section:Slider({
+    name = "health bar thickness",
+    min = 1,
+    max = 10,
+    default = 2,
+    float = 1,
+    flag = "esp_health_thickness",
+    callback = function(v) es.health_thickness = v end,
+})
+
+-- SKELETON
 esp_section:Separator("skeleton")
 
 esp_section:Toggle({
@@ -4601,17 +5022,125 @@ esp_section:ColorPicker({
     callback = function(v) es.skeleton_color = v end,
 })
 
+-- CHAMS
+esp_section:Separator("chams")
+
+esp_section:Toggle({
+    name = "chams",
+    default = false,
+    flag = "esp_chams",
+    callback = function(v) es.chams = v end,
+})
+
+esp_section:Toggle({
+    name = "chams visible only",
+    default = false,
+    flag = "esp_chams_visible_only",
+    callback = function(v) es.chams_visible_only = v end,
+})
+
+esp_section:Dropdown({
+    name = "chams material",
+    content = { "Neon", "ForceField", "Glass", "SmoothPlastic" },
+    default = "Neon",
+    flag = "esp_chams_material",
+    callback = function(v) es.chams_material = v end,
+})
+
+esp_section:ColorPicker({
+    name = "chams color",
+    default = Color3.new(1, 1, 1),
+    flag = "esp_chams_fill_color",
+    callback = function(v) es.chams_fill_color = v end,
+})
+
+esp_section:ColorPicker({
+    name = "chams outline color",
+    default = Color3.new(1, 1, 1),
+    flag = "esp_chams_outline_color",
+    callback = function(v) es.chams_outline_color = v end,
+})
+
+esp_section:Slider({
+    name = "chams transparency",
+    min = 0,
+    max = 1,
+    default = 0.5,
+    float = 0.01,
+    flag = "esp_chams_fill_transparency",
+    callback = function(v) es.chams_fill_transparency = v end,
+})
+
+esp_section:Slider({
+    name = "chams outline transparency",
+    min = 0,
+    max = 1,
+    default = 0,
+    float = 0.01,
+    flag = "esp_chams_outline_transparency",
+    callback = function(v) es.chams_outline_transparency = v end,
+})
+
+-- MISC
+esp_section:Separator("misc")
+
+esp_section:Toggle({
+    name = "infinite range",
+    default = false,
+    flag = "esp_infinite_range",
+    callback = function(v)
+        esp.main_settings.infiniterange = v
+    end,
+})
+
+esp_section:Slider({
+    name = "font size",
+    min = 1,
+    max = 30,
+    default = 13,
+    float = 1,
+    flag = "esp_font_size",
+    callback = function(v)
+        esp.main_settings.textSize = v
+        esp.refresh()
+    end,
+})
+
+esp_section:Dropdown({
+    name = "font",
+    content = { "Monospace", "Code", "Plex", "UI", "System" },
+    default = "Monospace",
+    flag = "esp_font",
+    callback = function(v)
+        esp.main_settings.textFont = Drawing.Fonts[v] or Drawing.Fonts.Monospace
+        esp.refresh()
+    end,
+})
+
+esp_section:Toggle({
+    name = "highlight high kd (>5)",
+    default = false,
+    flag = "esp_high_kd_marker",
+    callback = function(v) es.high_kd_marker = v end,
+})
+
+esp_section:ColorPicker({
+    name = "cheater outline color",
+    default = Color3.fromRGB(255, 0, 0),
+    flag = "esp_high_kd_color",
+    callback = function(v) es.high_kd_outline_color = v end,
+})
+
 esp_section:Slider({
     name = "max distance",
     min = 0,
     max = 5000,
     default = 0,
-    float = 0.01,
+    float = 1,
     flag = "esp_max_distance",
     callback = function(v) es.max_distance = v end,
 })
 
--- corpse esp
 esp_right_section:Separator("corpse esp")
 
 esp_right_section:Toggle({

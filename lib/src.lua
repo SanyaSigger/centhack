@@ -1,5 +1,9 @@
 --// CUSTOM DRAWING
 
+-- The plex font is not available in every executor, the code font is the
+-- fallback.
+local FONT = Drawing.Fonts.Plex or Drawing.Fonts.Code
+
 local drawing = {} do
     local services = setmetatable({}, {
         __index = function(self, key)
@@ -361,97 +365,53 @@ local drawing = {} do
 
                     self.ClipsDescendants = true
 
-                    local function scroll(amount)
-                        local totalclippedobjs, currentclippedobj, docontinue = 0, nil, false
+                    -- The content is moved by a fixed amount of pixels, the
+                    -- offset is clamped so the first and the last element stay
+                    -- reachable. The children keep their base position, the
+                    -- scroll offset is only the difference to it.
+                    local SCROLL_STEP = 34
 
+                    local function apply_scroll(self, offset)
                         for i, object in next, listchildren[self] do
-                            if amount == 1 then
-                                if object.Position.Y > mtobjs[self].Position.Y then
-                                    if not istouching(object.Position, object.Size, mtobjs[self].Position, mtobjs[self].Size) then
-                                        if not currentclippedobj then
-                                            currentclippedobj = object
-                                        end
-
-                                        totalclippedobjs = totalclippedobjs + 1
-                                        docontinue = true
-                                    end
-                                end
-                            end
-
-                            if amount == -1 then
-                                if object.Position.Y <= mtobjs[self].Position.Y then
-                                    if not istouching(object.Position, object.Size, mtobjs[self].Position, mtobjs[self].Size) then
-                                        currentclippedobj = object
-                                        totalclippedobjs = totalclippedobjs + 1
-                                        docontinue = true
-                                    end
-                                end
-                            end
+                            local base = listindexes[self][i] or 0
+                            local newpos = mtobjs[self].Position + Vector2.new(0, base - offset)
+                            object.Position = newpos
+                            childrenposupdates[object](objmts[object], newpos)
+                            custompropertysets[object]("AbsolutePosition", newpos)
                         end
 
-                        if docontinue then
-                            if amount > 0 then
-                                local poschange = -(currentclippedobj.Size.Y + objpaddings[self])
-                                local closestobj
-
-                                for i, object in next, objchildren[self] do
-                                    if istouching(object.Position + Vector2.new(0, poschange), object.Size, mtobjs[self].Position, mtobjs[self].Size) then
-                                        closestobj = object
-                                        break
-                                    end
-                                end
-
-                                local diff = (Vector2.new(0, mtobjs[self].Position.Y) - Vector2.new(0, (closestobj.Position.Y + poschange + objpaddings[self]))).magnitude
-
-                                if custompropertygets[mtobjs[self]]("ClipsDescendants") then
-                                    for i, object in next, objchildren[self] do
-                                        if not istouching(object.Position + Vector2.new(0, poschange - diff + objpaddings[self]), object.Size, mtobjs[self].Position, mtobjs[self].Size) then
-                                            object.Visible = false
-                                            childrenvisupdates[objmts[object]](objmts[object], false)
-                                        else
-                                            object.Visible = true
-                                            childrenvisupdates[objmts[object]](objmts[object], true)
-                                        end
-                                    end
-                                end
-
-                                scrollpositions[self] = scrollpositions[self] + (poschange - diff + objpaddings[self])
-
-                                for i, object in next, objchildren[self] do
-                                    childrenposupdates[objmts[object]](objmts[object], object.Position + Vector2.new(0, poschange - diff + objpaddings[self]))
-                                    object.Position = object.Position + Vector2.new(0, poschange - diff + objpaddings[self])
-                                end
-                            else
-                                local poschange = currentclippedobj.Size.Y + objpaddings[self]
-
-                                if custompropertygets[mtobjs[self]]("ClipsDescendants") then
-                                    for i, object in next, objchildren[self] do
-                                        if not istouching(object.Position + Vector2.new(0, poschange), object.Size, mtobjs[self].Position, mtobjs[self].Size) then
-                                            object.Visible = false
-                                            childrenvisupdates[objmts[object]](objmts[object], false)
-                                        else
-                                            object.Visible = true
-                                            childrenvisupdates[objmts[object]](objmts[object], true)
-                                        end
-                                    end
-                                end
-
-                                scrollpositions[self] = scrollpositions[self] + poschange
-
-                                for i, object in next, objchildren[self] do
-                                    childrenposupdates[objmts[object]](objmts[object], object.Position + Vector2.new(0, poschange))
-                                    object.Position = object.Position + Vector2.new(0, poschange)
-                                end
+                        if custompropertygets[mtobjs[self]]("ClipsDescendants") then
+                            for i, object in next, listchildren[self] do
+                                local visible = istouching(
+                                    object.Position, object.Size,
+                                    mtobjs[self].Position, mtobjs[self].Size)
+                                object.Visible = visible
+                                childrenvisupdates[objmts[object]](objmts[object], visible)
                             end
                         end
+                    end
 
-                        return docontinue
+                    local function scroll(amount)
+                        local total = listcontents[self] or 0
+                        local height = mtobjs[self].Size.Y
+                        local max_scroll = math.max(0, total - height)
+                        local current = -(scrollpositions[self] or 0)
+                        local target = math.clamp(
+                            current + (SCROLL_STEP * (amount > 0 and 1 or -1)),
+                            0, max_scroll)
+
+                        if math.abs(target - current) < 0.01 then
+                            return false
+                        end
+
+                        scrollpositions[self] = -target
+                        apply_scroll(self, target)
+                        return true
                     end
 
                     refreshscrolling = function()
-                        repeat
-                        until
-                            not scroll(-1)
+                        scrollpositions[self] = 0
+                        apply_scroll(self, 0)
                     end
 
                     self.InputChanged:Connect(function(input)
@@ -1159,6 +1119,16 @@ end
 function utility.create(class, properties)
     local obj = drawing:new(class)
 
+    -- The properties are applied in a random order, so an element could be
+    -- parented before it has its size. The list layout would then measure it
+    -- with the size 0 and every element of a section would overlap the next
+    -- one. The size is applied first so the layout is always correct.
+    if properties and properties.Size then
+        obj.Size = properties.Size
+        properties = table.clone(properties)
+        properties.Size = nil
+    end
+
     for prop, v in next, properties do
         if prop == "Theme" then
             themeobjects[obj] = v
@@ -1593,7 +1563,7 @@ function library.createdropdown(holder, content, flag, callback, default, max, s
     
     local value = utility.create("Text", {
         Text = "NONE",
-        Font = Drawing.Fonts.Plex,
+        Font = FONT,
         Size = 13,
         Position = UDim2.new(0, 6, 0, 0),
         Theme = "Disabled Text",
@@ -1604,7 +1574,7 @@ function library.createdropdown(holder, content, flag, callback, default, max, s
 
     local icon = utility.create("Text", {
         Text = "+",
-        Font = Drawing.Fonts.Plex,
+        Font = FONT,
         Size = 13,
         Position = UDim2.new(1, -13, 0, 0),
         Theme = "Text",
@@ -1701,7 +1671,7 @@ function library.createdropdown(holder, content, flag, callback, default, max, s
 
         local title = utility.create("Text", {
             Text = name,
-            Font = Drawing.Fonts.Plex,
+            Font = FONT,
             Size = 13,
             Position = UDim2.new(0, 8, 0, 1),
             Theme = "Disabled Text",
@@ -1752,7 +1722,7 @@ function library.createdropdown(holder, content, flag, callback, default, max, s
                     for _, opt in next, chosen do
                         table.insert(textchosen, opt)
 
-                        if utility.textlength(table.concat(textchosen, ", ") .. ", ...", Drawing.Fonts.Plex, 13).X > (dropdown.AbsoluteSize.X - 18) then
+                        if utility.textlength(table.concat(textchosen, ", ") .. ", ...", FONT, 13).X > (dropdown.AbsoluteSize.X - 18) then
                             cutobject = true
                             table.remove(textchosen, #textchosen)
                         end
@@ -1782,7 +1752,7 @@ function library.createdropdown(holder, content, flag, callback, default, max, s
                     for _, opt in next, chosen do
                         table.insert(textchosen, opt)
 
-                        if utility.textlength(table.concat(textchosen, ", ") .. ", ...", Drawing.Fonts.Plex, 13).X > (dropdown.AbsoluteSize.X - 18) then
+                        if utility.textlength(table.concat(textchosen, ", ") .. ", ...", FONT, 13).X > (dropdown.AbsoluteSize.X - 18) then
                             cutobject = true
                             table.remove(textchosen, #textchosen)
                         end
@@ -1869,7 +1839,7 @@ function library.createdropdown(holder, content, flag, callback, default, max, s
             for _, opt in next, chosen do
                 table.insert(textchosen, opt)
 
-                if utility.textlength(table.concat(textchosen, ", ") .. ", ...", Drawing.Fonts.Plex, 13).X > (dropdown.AbsoluteSize.X - 6) then
+                if utility.textlength(table.concat(textchosen, ", ") .. ", ...", FONT, 13).X > (dropdown.AbsoluteSize.X - 6) then
                     cutobject = true
                     table.remove(textchosen, #textchosen)
                 end
@@ -1984,7 +1954,7 @@ function library.createdropdown(holder, content, flag, callback, default, max, s
                     for _, opt in next, chosen do
                         table.insert(textchosen, opt)
 
-                        if utility.textlength(table.concat(textchosen, ", ") .. ", ...", Drawing.Fonts.Plex, 13).X > (dropdown.AbsoluteSize.X - 6) then
+                        if utility.textlength(table.concat(textchosen, ", ") .. ", ...", FONT, 13).X > (dropdown.AbsoluteSize.X - 6) then
                             cutobject = true
                             table.remove(textchosen, #textchosen)
                         end
@@ -2044,7 +2014,7 @@ function library.createslider(min, max, parent, text, default, float, flag, call
     })
 
     local valuetext = utility.create("Text", {
-        Font = Drawing.Fonts.Plex,
+        Font = FONT,
         Size = 13,
         Position = UDim2.new(0.5, 0, 0, -2),
         Theme = "Text",
@@ -2307,7 +2277,7 @@ function library.createcolorpicker(default, defaultalpha, parent, count, flag, c
 
     local text = utility.create("Text", {
         Text = string.format("%s, %s, %s", math.floor(default.R * 255), math.floor(default.G * 255), math.floor(default.B * 255)),
-        Font = Drawing.Fonts.Plex,
+        Font = FONT,
         Size = 13,
         Position = UDim2.new(0.5, 0, 0, 0),
         Center = true,
@@ -2319,7 +2289,7 @@ function library.createcolorpicker(default, defaultalpha, parent, count, flag, c
 
     local placeholdertext = utility.create("Text", {
         Text = "R, G, B",
-        Font = Drawing.Fonts.Plex,
+        Font = FONT,
         Size = 13,
         Position = UDim2.new(0.5, 0, 0, 0),
         Center = true,
@@ -2386,10 +2356,10 @@ function library.createcolorpicker(default, defaultalpha, parent, count, flag, c
             text.Text = string.format("%s, %s, %s", math.round(hsv.R * 255), math.round(hsv.G * 255), math.round(hsv.B * 255))
 
             if flag then 
-                library.flags[flag] = utility.rgba(hsv.r * 255, hsv.g * 255, hsv.b * 255, alpha)
+                library.flags[flag] = utility.rgba(hsv.R * 255, hsv.G * 255, hsv.B * 255, alpha)
             end
 
-            callback(utility.rgba(hsv.r * 255, hsv.g * 255, hsv.b * 255, alpha))
+            callback(utility.rgba(hsv.R * 255, hsv.G * 255, hsv.B * 255, alpha))
         end
     end
 
@@ -2612,7 +2582,7 @@ function library.createkeybind(default, parent, blacklist, flag, callback, offse
     })
 
     local keytext = utility.create("Text", {
-        Font = Drawing.Fonts.Plex,
+        Font = FONT,
         Size = 13,
         Theme = "Disabled Text",
         Position = UDim2.new(0, 0, 0, offset),
@@ -2634,7 +2604,7 @@ function library.createkeybind(default, parent, blacklist, flag, callback, offse
             key = newkey
 
             local text = "[" .. (keys[newkey] or tostring(newkey):gsub("Enum.KeyCode.", "")) .. "]"
-            local sizeX = utility.textlength(text, Drawing.Fonts.Plex, 13).X
+            local sizeX = utility.textlength(text, FONT, 13).X
 
             keybutton.Size = UDim2.new(0, sizeX, 0, 10)
             keybutton.Position = UDim2.new(1, -sizeX, 0, 0)
@@ -2649,7 +2619,7 @@ function library.createkeybind(default, parent, blacklist, flag, callback, offse
             key = nil
 
             local text = "[NONE]"
-            local sizeX = utility.textlength("[NONE]", Drawing.Fonts.Plex, 13).X
+            local sizeX = utility.textlength("[NONE]", FONT, 13).X
 
             keybutton.Size = UDim2.new(0, sizeX, 0, 10)
             keybutton.Position = UDim2.new(1, -sizeX, 0, 0)
@@ -2671,7 +2641,7 @@ function library.createkeybind(default, parent, blacklist, flag, callback, offse
 
     keybutton.MouseButton1Click:Connect(function()
         if not binding then
-            local sizeX = utility.textlength("...", Drawing.Fonts.Plex, 13).X
+            local sizeX = utility.textlength("...", FONT, 13).X
 
             keybutton.Size = UDim2.new(0, sizeX, 0, 10)
             keybutton.Position = UDim2.new(1, -sizeX, 0, 0)
@@ -2713,7 +2683,7 @@ function library.createkeybind(default, parent, blacklist, flag, callback, offse
 end
 
 function library:Watermark(str)
-    local size = utility.textlength(str, Drawing.Fonts.Plex, 13).X
+    local size = utility.textlength(str, FONT, 13).X
 
     local watermark = utility.create("Square", {
         Size = UDim2.new(0, size + 16, 0, 20),
@@ -2731,7 +2701,7 @@ function library:Watermark(str)
     
     local text = utility.create("Text", {
         Text = str,
-        Font = Drawing.Fonts.Plex,
+        Font = FONT,
         Size = 13,
         Position = UDim2.new(0.5, 0, 0, 3),
         Theme = "Text",
@@ -2751,7 +2721,7 @@ function library:Watermark(str)
     end
 
     function watermarktypes:Set(str)
-        local size = utility.textlength(str, Drawing.Fonts.Plex, 13).X
+        local size = utility.textlength(str, FONT, 13).X
         watermark.Size = UDim2.new(0, size + 16, 0, 20)
         watermark.Position = UDim2.new(0, 16, 0, 16)
         text.Text = str
@@ -2832,7 +2802,7 @@ function library:Load(options)
 
     utility.create("Text", {
         Text = name,
-        Font = Drawing.Fonts.Plex,
+        Font = FONT,
         Size = 13,
         Position = UDim2.new(0, 6, 0, 4),
         Theme = "Text",
@@ -2930,7 +2900,7 @@ function library:Load(options)
 
         local title = utility.create("Text", {
             Text = name,
-            Font = Drawing.Fonts.Plex,
+            Font = FONT,
             Size = 13,
             Position = UDim2.new(0.5, 0, 0, 3),
             Theme = #self.tabtoggles == 1 and "Text" or "Disabled Text",
@@ -3040,7 +3010,7 @@ function library:Load(options)
             
             utility.create("Text", {
                 Text = name,
-                Font = Drawing.Fonts.Plex,
+                Font = FONT,
                 Size = 13,
                 Position = UDim2.new(0, 6, 0, 3),
                 Theme = "Text",
@@ -3069,7 +3039,7 @@ function library:Load(options)
 
                 local text = utility.create("Text", {
                     Text = name,
-                    Font = Drawing.Fonts.Plex,
+                    Font = FONT,
                     Size = 13,
                     Position = UDim2.new(0, 0, 0, 0),
                     Theme = "Text",
@@ -3108,7 +3078,7 @@ function library:Load(options)
 
                 utility.outline(separatorline, "Object Border")
 
-                local sizeX = utility.textlength(name, Drawing.Fonts.Plex, 13).X
+                local sizeX = utility.textlength(name, FONT, 13).X
 
                 local separatorborder1 = utility.create("Square", {
                     Size = UDim2.new(0, 1, 1, 2),
@@ -3141,7 +3111,7 @@ function library:Load(options)
 
                 local text = utility.create("Text", {
                     Text = name,
-                    Font = Drawing.Fonts.Plex,
+                    Font = FONT,
                     Size = 13,
                     Position = UDim2.new(0.5, 0, 0, 0),
                     Theme = "Text",
@@ -3156,7 +3126,7 @@ function library:Load(options)
                 local separatortypes = utility.table({}, true)
 
                 function separatortypes:Set(str)
-                    local sizeX = utility.textlength(str, Drawing.Fonts.Plex, 13).X
+                    local sizeX = utility.textlength(str, FONT, 13).X
                     separatorcutoff.Size = UDim2.new(0, sizeX + 12, 0, 3)
                     separatorcutoff.Position =  UDim2.new(0.5, (-sizeX / 2) - 7, 0.5, -1)
                     separatorborder1.Position =  UDim2.new(0.5, (-sizeX / 2) - 7, 0.5, -1)
@@ -3196,7 +3166,7 @@ function library:Load(options)
 
                 utility.create("Text", {
                     Text = name,
-                    Font = Drawing.Fonts.Plex,
+                    Font = FONT,
                     Size = 13,
                     Position = UDim2.new(0.5, 0, 0, 0),
                     Center = true,
@@ -3272,7 +3242,7 @@ function library:Load(options)
 
                 local title = utility.create("Text", {
                     Text = name,
-                    Font = Drawing.Fonts.Plex,
+                    Font = FONT,
                     Size = 13,
                     Position = UDim2.new(0, 17, 0, -2),
                     Theme = "Disabled Text",
@@ -3482,7 +3452,7 @@ function library:Load(options)
 
                 local text = utility.create("Text", {
                     Text = default,
-                    Font = Drawing.Fonts.Plex,
+                    Font = FONT,
                     Size = 13,
                     Position = UDim2.new(0.5, 0, 0, 0),
                     Center = true,
@@ -3494,7 +3464,7 @@ function library:Load(options)
 
                 local placeholdertext = utility.create("Text", {
                     Text = placeholder,
-                    Font = Drawing.Fonts.Plex,
+                    Font = FONT,
                     Size = 13,
                     Position = UDim2.new(0.5, 0, 0, 0),
                     Center = true,
@@ -3583,7 +3553,7 @@ function library:Load(options)
 
                 local title = utility.create("Text", {
                     Text = name,
-                    Font = Drawing.Fonts.Plex,
+                    Font = FONT,
                     Size = 13,
                     Position = UDim2.new(0, 0, 0, -2),
                     Theme = "Text",
@@ -3642,7 +3612,7 @@ function library:Load(options)
 
                 local title = utility.create("Text", {
                     Text = name,
-                    Font = Drawing.Fonts.Plex,
+                    Font = FONT,
                     Size = 13,
                     Position = UDim2.new(0, 0, 0, -2),
                     Theme = "Text",
@@ -3701,7 +3671,7 @@ function library:Load(options)
 
                 local title = utility.create("Text", {
                     Text = name,
-                    Font = Drawing.Fonts.Plex,
+                    Font = FONT,
                     Size = 13,
                     Position = UDim2.new(0, 0, 0, -2),
                     Theme = "Text",
@@ -3733,7 +3703,7 @@ function library:Load(options)
 
                 local title = utility.create("Text", {
                     Text = name,
-                    Font = Drawing.Fonts.Plex,
+                    Font = FONT,
                     Size = 13,
                     Position = UDim2.new(0, 0, 0, 0),
                     Theme = "Text",
@@ -3781,7 +3751,7 @@ function library:Load(options)
 
                 local title = utility.create("Text", {
                     Text = name,
-                    Font = Drawing.Fonts.Plex,
+                    Font = FONT,
                     Size = 13,
                     Theme = "Text",
                     ZIndex = 7,
@@ -3802,5 +3772,7 @@ function library:Load(options)
 
     return windowtypes
 end
+
+library.setters = flags
 
 return library
