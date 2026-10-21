@@ -214,15 +214,6 @@ local drawing = {} do
     local currentcanvasposobjs = {}
     local childrenposupdates = {}
 
-    -- the internals are exported at the end of the file, they are used to
-    -- check the layout of the menu
-    library_internals = {
-        objchildren = objchildren,
-        objmts = objmts,
-        mtobjs = mtobjs,
-        listcontents = listcontents,
-        listchildren = listchildren,
-    }
     local childrenvisupdates = {}
     local squares = {}
     local objsignals = {}
@@ -732,6 +723,12 @@ local drawing = {} do
 
                         if customproperties.Parent then
                             if listobjs[customproperties.Parent] then
+                                -- The list layout places the child at the
+                                -- position of the list, so the value is already
+                                -- absolute and is used as it is.
+                                obj[k] = v
+                                customproperties.AbsolutePosition = v
+                                changechildrenpos(self, v)
                                 return
                             else
                                 v = mtobjs[customproperties.Parent].Position + v
@@ -878,6 +875,11 @@ local drawing = {} do
                 if k == "Parent" then
                     assert(type(v) == "table", "Invalid type " .. type(v) .. " for parent")
 
+                    -- The parent has to be known before the child is placed,
+                    -- otherwise the position of the child is calculated against
+                    -- the viewport and the element ends up off screen.
+                    customproperties.Parent = v
+
                     table.insert(objchildren[v], obj)
                     table.insert(objmtchildren[v], self)
 
@@ -892,6 +894,18 @@ local drawing = {} do
                         end
 
                         changechildrenudim2pos(self, newsize)
+                    end
+
+                    -- The position of a child is relative to its parent. When the
+                    -- position was applied before the parent it was calculated
+                    -- against the viewport, so it has to be calculated again
+                    -- now that the parent is known.
+                    if udim2posobjs[obj] then
+                        local newpos = mtobjs[v].Position + udim2tovector2(udim2posobjs[obj], mtobjs[v].Size)
+                        objpositions[obj] = newpos
+                        obj.Position = newpos
+                        customproperties.AbsolutePosition = newpos
+                        changechildrenpos(self, newpos)
                     end
 
                     if listobjs[v] then
@@ -965,6 +979,26 @@ local drawing = {} do
 
         return mt
     end
+
+    -- the internals are exported at the end of the file, they are used to
+    -- check and to rebuild the layout of the menu
+    library_internals = {
+        objchildren = objchildren,
+        objmts = objmts,
+        mtobjs = mtobjs,
+        listcontents = listcontents,
+        listchildren = listchildren,
+        listindexes = listindexes,
+        objpositions = objpositions,
+        objvisibles = objvisibles,
+        udim2sizeobjs = udim2sizeobjs,
+        udim2posobjs = udim2posobjs,
+        custompropertysets = custompropertysets,
+        custompropertygets = custompropertygets,
+        childrenvisupdates = childrenvisupdates,
+        udim2tovector2 = udim2tovector2,
+        istouching = istouching,
+    }
 end
 
 -- // UI LIBRARY
@@ -1176,15 +1210,29 @@ end
 function utility.create(class, properties)
     local obj = drawing:new(class)
 
-    for prop, v in next, properties do
-        if prop == "Theme" then
-            themeobjects[obj] = v
-            obj.Color = library.theme[v]
-        else
-            obj[prop] = v
+    if properties then
+        -- The parent is applied first. The size and the position of an
+        -- element are relative to its parent, so they can only be calculated
+        -- once the parent is known. Without this the properties are applied
+        -- in a random order and the element ends up at a position that was
+        -- calculated against the viewport, which is off screen.
+        local parent = properties.Parent
+        if parent then
+            obj.Parent = parent
+            properties = table.clone(properties)
+            properties.Parent = nil
+        end
+
+        for prop, v in next, properties do
+            if prop == "Theme" then
+                themeobjects[obj] = v
+                obj.Color = library.theme[v]
+            else
+                obj[prop] = v
+            end
         end
     end
-    
+
     return obj
 end
 
@@ -2727,6 +2775,105 @@ function library.createkeybind(default, parent, blacklist, flag, callback, offse
     end
 
     return keybindtypes
+end
+
+-- The layout is calculated again from the root down. The properties of an
+-- element are applied in a random order, so the size and the position of an
+-- element can end up being calculated against the viewport instead of
+-- against its parent. This pass makes the layout deterministic: the size of
+-- an element is relative to its parent, the position of an element is
+-- relative to its parent and the children of a list are stacked.
+function library:Relayout()
+    local internal = library_internals
+    local mtobjs = internal.mtobjs
+    local objmts = internal.objmts
+    local objchildren = internal.objchildren
+    local listchildren = internal.listchildren
+    local listindexes = internal.listindexes
+    local objpositions = internal.objpositions
+    local objvisibles = internal.objvisibles
+    local udim2sizeobjs = internal.udim2sizeobjs
+    local udim2posobjs = internal.udim2posobjs
+    local custompropertysets = internal.custompropertysets
+    local custompropertygets = internal.custompropertygets
+    local childrenvisupdates = internal.childrenvisupdates
+    local udim2tovector2 = internal.udim2tovector2
+    local istouching = internal.istouching
+
+    local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+        or Vector2.new(1920, 1080)
+
+    local function place(mt, parent_obj, list_base)
+        local obj = mtobjs[mt]
+        if not obj then return end
+
+        local size = obj.Size
+        local size_udim = udim2sizeobjs[obj]
+        if size_udim then
+            size = udim2tovector2(size_udim, parent_obj and parent_obj.Size or viewport)
+            obj.Size = size
+        end
+
+        local pos_udim = udim2posobjs[obj]
+        local pos
+        if pos_udim then
+            pos = udim2tovector2(pos_udim, parent_obj and parent_obj.Size or viewport)
+            if parent_obj then
+                pos = parent_obj.Position + pos
+            end
+        end
+
+        local children = listchildren[mt]
+        if children then
+            -- the list itself is placed like every other element
+            if pos then
+                obj.Position = pos
+                objpositions[obj] = pos
+                custompropertysets[obj]("AbsolutePosition", pos)
+            end
+            -- the children of a list are stacked under each other
+            local base = obj.Position or (parent_obj and parent_obj.Position) or Vector2.new(0, 0)
+            for i, child in pairs(children) do
+                local co = mtobjs[child] or child
+                local csize = co.Size
+                local csize_udim = udim2sizeobjs[co]
+                if csize_udim then
+                    csize = udim2tovector2(csize_udim, size)
+                    co.Size = csize
+                end
+                local offset = listindexes[mt] and listindexes[mt][i] or 0
+                co.Position = base + Vector2.new(0, offset)
+                objpositions[co] = co.Position
+                custompropertysets[co]("AbsolutePosition", co.Position)
+                place(objmts[child] or child, co)
+            end
+        else
+            if pos then
+                obj.Position = pos
+                objpositions[obj] = pos
+                custompropertysets[obj]("AbsolutePosition", pos)
+            end
+            for _, child in pairs(objchildren[mt] or {}) do
+                place(objmts[child] or child, obj)
+            end
+        end
+
+        -- the children that are outside of the visible area are hidden
+        if custompropertygets[mtobjs[mt]]("ClipsDescendants") then
+            for _, child in pairs(listchildren[mt] or {}) do
+                local co = mtobjs[child] or child
+                local visible = istouching(
+                    co.Position, co.Size,
+                    mtobjs[mt].Position, mtobjs[mt].Size) and objvisibles[child] or false
+                co.Visible = visible
+                childrenvisupdates[objmts[child]](objmts[child], visible)
+            end
+        end
+    end
+
+    if self.holder then
+        place(self.holder, nil)
+    end
 end
 
 function library:Watermark(str)

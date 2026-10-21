@@ -459,15 +459,6 @@ local library = (function()
         local currentcanvasposobjs = {}
         local childrenposupdates = {}
 
-        -- the internals are exported at the end of the file, they are used to
-        -- check the layout of the menu
-        library_internals = {
-            objchildren = objchildren,
-            objmts = objmts,
-            mtobjs = mtobjs,
-            listcontents = listcontents,
-            listchildren = listchildren,
-        }
         local childrenvisupdates = {}
         local squares = {}
         local objsignals = {}
@@ -620,52 +611,98 @@ local library = (function()
 
                         self.ClipsDescendants = true
 
-                        -- The content of a list is moved by a fixed amount of
-                        -- pixels, the offset is clamped so the first and the last
-                        -- element stay reachable.
-                        local SCROLL_STEP = 34
+                        local function scroll(amount)
+                            local totalclippedobjs, currentclippedobj, docontinue = 0, nil, false
 
-                        local function apply_scroll(self, offset)
                             for i, object in next, listchildren[self] do
-                                local base = listindexes[self][i] or 0
-                                local newpos = mtobjs[self].Position + Vector2.new(0, base - offset)
-                                object.Position = newpos
-                                childrenposupdates[object](objmts[object], newpos)
-                                custompropertysets[object]("AbsolutePosition", newpos)
-                            end
+                                if amount == 1 then
+                                    if object.Position.Y > mtobjs[self].Position.Y then
+                                        if not istouching(object.Position, object.Size, mtobjs[self].Position, mtobjs[self].Size) then
+                                            if not currentclippedobj then
+                                                currentclippedobj = object
+                                            end
 
-                            if custompropertygets[mtobjs[self]]("ClipsDescendants") then
-                                for i, object in next, listchildren[self] do
-                                    local visible = istouching(
-                                        object.Position, object.Size,
-                                        mtobjs[self].Position, mtobjs[self].Size)
-                                    object.Visible = visible
-                                    childrenvisupdates[objmts[object]](objmts[object], visible)
+                                            totalclippedobjs = totalclippedobjs + 1
+                                            docontinue = true
+                                        end
+                                    end
+                                end
+
+                                if amount == -1 then
+                                    if object.Position.Y <= mtobjs[self].Position.Y then
+                                        if not istouching(object.Position, object.Size, mtobjs[self].Position, mtobjs[self].Size) then
+                                            currentclippedobj = object
+                                            totalclippedobjs = totalclippedobjs + 1
+                                            docontinue = true
+                                        end
+                                    end
                                 end
                             end
-                        end
 
-                        local function scroll(amount)
-                            local total = listcontents[self] or 0
-                            local height = mtobjs[self].Size.Y
-                            local max_scroll = math.max(0, total - height)
-                            local current = -(scrollpositions[self] or 0)
-                            local target = math.clamp(
-                                current + (SCROLL_STEP * (amount > 0 and 1 or -1)),
-                                0, max_scroll)
+                            if docontinue then
+                                if amount > 0 then
+                                    local poschange = -(currentclippedobj.Size.Y + objpaddings[self])
+                                    local closestobj
 
-                            if math.abs(target - current) < 0.01 then
-                                return false
+                                    for i, object in next, objchildren[self] do
+                                        if istouching(object.Position + Vector2.new(0, poschange), object.Size, mtobjs[self].Position, mtobjs[self].Size) then
+                                            closestobj = object
+                                            break
+                                        end
+                                    end
+
+                                    if not closestobj then closestobj = currentclippedobj end
+                                    local diff = (Vector2.new(0, mtobjs[self].Position.Y) - Vector2.new(0, (closestobj.Position.Y + poschange + objpaddings[self]))).Magnitude
+
+                                    if custompropertygets[mtobjs[self]]("ClipsDescendants") then
+                                        for i, object in next, objchildren[self] do
+                                            if not istouching(object.Position + Vector2.new(0, poschange - diff + objpaddings[self]), object.Size, mtobjs[self].Position, mtobjs[self].Size) then
+                                                object.Visible = false
+                                                childrenvisupdates[objmts[object]](objmts[object], false)
+                                            else
+                                                object.Visible = true
+                                                childrenvisupdates[objmts[object]](objmts[object], true)
+                                            end
+                                        end
+                                    end
+
+                                    scrollpositions[self] = scrollpositions[self] + (poschange - diff + objpaddings[self])
+
+                                    for i, object in next, objchildren[self] do
+                                        childrenposupdates[objmts[object]](objmts[object], object.Position + Vector2.new(0, poschange - diff + objpaddings[self]))
+                                        object.Position = object.Position + Vector2.new(0, poschange - diff + objpaddings[self])
+                                    end
+                                else
+                                    local poschange = currentclippedobj.Size.Y + objpaddings[self]
+
+                                    if custompropertygets[mtobjs[self]]("ClipsDescendants") then
+                                        for i, object in next, objchildren[self] do
+                                            if not istouching(object.Position + Vector2.new(0, poschange), object.Size, mtobjs[self].Position, mtobjs[self].Size) then
+                                                object.Visible = false
+                                                childrenvisupdates[objmts[object]](objmts[object], false)
+                                            else
+                                                object.Visible = true
+                                                childrenvisupdates[objmts[object]](objmts[object], true)
+                                            end
+                                        end
+                                    end
+
+                                    scrollpositions[self] = scrollpositions[self] + poschange
+
+                                    for i, object in next, objchildren[self] do
+                                        childrenposupdates[objmts[object]](objmts[object], object.Position + Vector2.new(0, poschange))
+                                        object.Position = object.Position + Vector2.new(0, poschange)
+                                    end
+                                end
                             end
 
-                            scrollpositions[self] = -target
-                            apply_scroll(self, target)
-                            return true
+                            return docontinue
                         end
 
                         refreshscrolling = function()
-                            scrollpositions[self] = 0
-                            apply_scroll(self, 0)
+                            repeat
+                            until
+                                not scroll(-1)
                         end
 
                         self.InputChanged:Connect(function(input)
@@ -931,6 +968,12 @@ local library = (function()
 
                             if customproperties.Parent then
                                 if listobjs[customproperties.Parent] then
+                                    -- The list layout places the child at the
+                                    -- position of the list, so the value is already
+                                    -- absolute and is used as it is.
+                                    obj[k] = v
+                                    customproperties.AbsolutePosition = v
+                                    changechildrenpos(self, v)
                                     return
                                 else
                                     v = mtobjs[customproperties.Parent].Position + v
@@ -1077,6 +1120,11 @@ local library = (function()
                     if k == "Parent" then
                         assert(type(v) == "table", "Invalid type " .. type(v) .. " for parent")
 
+                        -- The parent has to be known before the child is placed,
+                        -- otherwise the position of the child is calculated against
+                        -- the viewport and the element ends up off screen.
+                        customproperties.Parent = v
+
                         table.insert(objchildren[v], obj)
                         table.insert(objmtchildren[v], self)
 
@@ -1091,6 +1139,18 @@ local library = (function()
                             end
 
                             changechildrenudim2pos(self, newsize)
+                        end
+
+                        -- The position of a child is relative to its parent. When the
+                        -- position was applied before the parent it was calculated
+                        -- against the viewport, so it has to be calculated again
+                        -- now that the parent is known.
+                        if udim2posobjs[obj] then
+                            local newpos = mtobjs[v].Position + udim2tovector2(udim2posobjs[obj], mtobjs[v].Size)
+                            objpositions[obj] = newpos
+                            obj.Position = newpos
+                            customproperties.AbsolutePosition = newpos
+                            changechildrenpos(self, newpos)
                         end
 
                         if listobjs[v] then
@@ -1164,6 +1224,26 @@ local library = (function()
 
             return mt
         end
+
+        -- the internals are exported at the end of the file, they are used to
+        -- check and to rebuild the layout of the menu
+        library_internals = {
+            objchildren = objchildren,
+            objmts = objmts,
+            mtobjs = mtobjs,
+            listcontents = listcontents,
+            listchildren = listchildren,
+            listindexes = listindexes,
+            objpositions = objpositions,
+            objvisibles = objvisibles,
+            udim2sizeobjs = udim2sizeobjs,
+            udim2posobjs = udim2posobjs,
+            custompropertysets = custompropertysets,
+            custompropertygets = custompropertygets,
+            childrenvisupdates = childrenvisupdates,
+            udim2tovector2 = udim2tovector2,
+            istouching = istouching,
+        }
     end
 
     -- // UI LIBRARY
@@ -1375,12 +1455,26 @@ local library = (function()
     function utility.create(class, properties)
         local obj = drawing:new(class)
 
-        for prop, v in next, properties do
-            if prop == "Theme" then
-                themeobjects[obj] = v
-                obj.Color = library.theme[v]
-            else
-                obj[prop] = v
+        if properties then
+            -- The parent is applied first. The size and the position of an
+            -- element are relative to its parent, so they can only be calculated
+            -- once the parent is known. Without this the properties are applied
+            -- in a random order and the element ends up at a position that was
+            -- calculated against the viewport, which is off screen.
+            local parent = properties.Parent
+            if parent then
+                obj.Parent = parent
+                properties = table.clone(properties)
+                properties.Parent = nil
+            end
+
+            for prop, v in next, properties do
+                if prop == "Theme" then
+                    themeobjects[obj] = v
+                    obj.Color = library.theme[v]
+                else
+                    obj[prop] = v
+                end
             end
         end
 
@@ -2926,6 +3020,105 @@ local library = (function()
         end
 
         return keybindtypes
+    end
+
+    -- The layout is calculated again from the root down. The properties of an
+    -- element are applied in a random order, so the size and the position of an
+    -- element can end up being calculated against the viewport instead of
+    -- against its parent. This pass makes the layout deterministic: the size of
+    -- an element is relative to its parent, the position of an element is
+    -- relative to its parent and the children of a list are stacked.
+    function library:Relayout()
+        local internal = library_internals
+        local mtobjs = internal.mtobjs
+        local objmts = internal.objmts
+        local objchildren = internal.objchildren
+        local listchildren = internal.listchildren
+        local listindexes = internal.listindexes
+        local objpositions = internal.objpositions
+        local objvisibles = internal.objvisibles
+        local udim2sizeobjs = internal.udim2sizeobjs
+        local udim2posobjs = internal.udim2posobjs
+        local custompropertysets = internal.custompropertysets
+        local custompropertygets = internal.custompropertygets
+        local childrenvisupdates = internal.childrenvisupdates
+        local udim2tovector2 = internal.udim2tovector2
+        local istouching = internal.istouching
+
+        local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+            or Vector2.new(1920, 1080)
+
+        local function place(mt, parent_obj, list_base)
+            local obj = mtobjs[mt]
+            if not obj then return end
+
+            local size = obj.Size
+            local size_udim = udim2sizeobjs[obj]
+            if size_udim then
+                size = udim2tovector2(size_udim, parent_obj and parent_obj.Size or viewport)
+                obj.Size = size
+            end
+
+            local pos_udim = udim2posobjs[obj]
+            local pos
+            if pos_udim then
+                pos = udim2tovector2(pos_udim, parent_obj and parent_obj.Size or viewport)
+                if parent_obj then
+                    pos = parent_obj.Position + pos
+                end
+            end
+
+            local children = listchildren[mt]
+            if children then
+                -- the list itself is placed like every other element
+                if pos then
+                    obj.Position = pos
+                    objpositions[obj] = pos
+                    custompropertysets[obj]("AbsolutePosition", pos)
+                end
+                -- the children of a list are stacked under each other
+                local base = obj.Position or (parent_obj and parent_obj.Position) or Vector2.new(0, 0)
+                for i, child in pairs(children) do
+                    local co = mtobjs[child] or child
+                    local csize = co.Size
+                    local csize_udim = udim2sizeobjs[co]
+                    if csize_udim then
+                        csize = udim2tovector2(csize_udim, size)
+                        co.Size = csize
+                    end
+                    local offset = listindexes[mt] and listindexes[mt][i] or 0
+                    co.Position = base + Vector2.new(0, offset)
+                    objpositions[co] = co.Position
+                    custompropertysets[co]("AbsolutePosition", co.Position)
+                    place(objmts[child] or child, co)
+                end
+            else
+                if pos then
+                    obj.Position = pos
+                    objpositions[obj] = pos
+                    custompropertysets[obj]("AbsolutePosition", pos)
+                end
+                for _, child in pairs(objchildren[mt] or {}) do
+                    place(objmts[child] or child, obj)
+                end
+            end
+
+            -- the children that are outside of the visible area are hidden
+            if custompropertygets[mtobjs[mt]]("ClipsDescendants") then
+                for _, child in pairs(listchildren[mt] or {}) do
+                    local co = mtobjs[child] or child
+                    local visible = istouching(
+                        co.Position, co.Size,
+                        mtobjs[mt].Position, mtobjs[mt].Size) and objvisibles[child] or false
+                    co.Visible = visible
+                    childrenvisupdates[objmts[child]](objmts[child], visible)
+                end
+            end
+        end
+
+        if self.holder then
+            place(self.holder, nil)
+        end
     end
 
     function library:Watermark(str)
@@ -10417,6 +10610,11 @@ config_section:Button({
 ----------------------------------------------------------------------
 -- EPILOGUE
 ----------------------------------------------------------------------
+
+-- The layout of the menu is calculated again, from the window down to every
+-- element, so it does not matter in which order the properties of an element
+-- were applied.
+pcall(function() library:Relayout() end)
 
 -- the underground resolver uses the keybind as a hold key
 cheat.utility.new_renderstepped(function()
