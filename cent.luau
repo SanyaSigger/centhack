@@ -262,6 +262,32 @@ local function load_void()
         "local diff = (Vector2.new(0, mtobjs[self].Position.Y)",
         "if not closestobj then closestobj = currentclippedobj end local diff = (Vector2.new(0, mtobjs[self].Position.Y)")
     source = replace_plain(source, ")).magnitude", ")).Magnitude")
+
+    -- the setter of every option is exposed, a loaded config is pushed into
+    -- the menu so the sliders show the loaded values
+    source = replace_plain(source,
+        "\n    return windowtypes\nend\n\nreturn library",
+        "\n    return windowtypes\nend\n\nlibrary.setters = flags\n\nreturn library")
+
+    -- The library applies the properties in a random order, so an element can
+    -- be parented before it has its size. The list layout then measures it
+    -- with the size 0 and every element of a section overlaps the next one.
+    -- The size is applied first so the layout is always correct.
+    source = replace_plain(source, [[
+function utility.create(class, properties)
+    local obj = drawing:new(class)
+
+    for prop, v in next, properties do]], [[
+function utility.create(class, properties)
+    local obj = drawing:new(class)
+
+    if properties and properties.Size then
+        obj.Size = properties.Size
+        properties = table.clone(properties)
+        properties.Size = nil
+    end
+
+    for prop, v in next, properties do]])
     local chunk, err = loadstring(source, "void")
     if not chunk then
         error("centhack: could not compile the ui library: " .. tostring(err))
@@ -1873,14 +1899,9 @@ do
     task.spawn(function()
         while cheat.alive do
             task.wait(0.12)
+            -- the dip always runs while the bind is held
             if ug_resolver.enabled and ug_resolver.holding and not busy then
-                local run = ug_resolver.mode == "default"
-                if ug_resolver.mode == "shoot" then
-                    run = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
-                end
-                if run then
-                    pcall(fire)
-                end
+                pcall(fire)
             end
         end
     end)
@@ -3929,6 +3950,7 @@ end
 
 local main_tab = window:Tab("Main")
 local visuals_tab = window:Tab("Visuals")
+local esp_tab = window:Tab("esp")
 local misc_tab = window:Tab("Misc")
 local player_tab = window:Tab("Player")
 local settings_tab = window:Tab("Settings")
@@ -3940,18 +3962,22 @@ local main_section = main_tab:Section({ name = "Main", side = "left" })
 local rage_section = main_tab:Section({ name = "rage", side = "right" })
 local weapon_section = main_tab:Section({ name = "Weaponmods", side = "right" })
 
+-- ESP TAB --------------------------------------------------------------------
+-- left: the main esp | right: corpse esp, item finder, inventory checker
+local esp_section = esp_tab:Section({ name = "esp", side = "left" })
+local esp_right_section = esp_tab:Section({ name = "misc", side = "right" })
+
 -- VISUALS TAB ---------------------------------------------------------------
--- left: esp
-local esp_section = visuals_tab:Section({ name = "esp", side = "left" })
-local esp_extra_section = visuals_tab:Section({ name = "esp extras", side = "left" })
--- right: lightning + other visuals
+-- left: fov + zoom | right: lightning + other visuals
+local fov_section = visuals_tab:Section({ name = "fov", side = "left" })
 local lightning_section = visuals_tab:Section({ name = "lightning", side = "right" })
 local other_section = visuals_tab:Section({ name = "other visuals", side = "right" })
 
 -- MISC TAB -------------------------------------------------------------------
--- left: viewmodel + chams | right: sounds + freecam
+-- left: viewmodel + chams | right: sounds + freecam + vehicle
 local viewmodel_section = misc_tab:Section({ name = "viewmodel", side = "left" })
 local sound_section = misc_tab:Section({ name = "sounds", side = "right" })
+local vehicle_section = misc_tab:Section({ name = "vehicle", side = "right" })
 
 -- PLAYER TAB -----------------------------------------------------------------
 -- left: desync + movement | right: player visuals + extras
@@ -4263,16 +4289,6 @@ local ug_picker = rage_section:Keybind({
     callback = function() end,
 })
 ug_resolver.picker = ug_picker
-
-rage_section:Dropdown({
-    name = "ug mode",
-    content = { "default", "shoot" },
-    default = "default",
-    flag = "ug_resolver_mode",
-    callback = function(v)
-        ug_resolver.mode = v
-    end,
-})
 
 rage_section:Slider({
     name = "ug depth",
@@ -4596,9 +4612,9 @@ esp_section:Slider({
 })
 
 -- corpse esp
-esp_section:Separator("corpse esp")
+esp_right_section:Separator("corpse esp")
 
-esp_section:Toggle({
+esp_right_section:Toggle({
     name = "enable corpse esp",
     default = false,
     flag = "corpse_esp_enabled",
@@ -4607,7 +4623,7 @@ esp_section:Toggle({
     end,
 })
 
-esp_section:Toggle({
+esp_right_section:Toggle({
     name = "corpse name",
     default = true,
     flag = "corpse_esp_name",
@@ -4616,7 +4632,7 @@ esp_section:Toggle({
     end,
 })
 
-esp_section:Toggle({
+esp_right_section:Toggle({
     name = "corpse distance",
     default = false,
     flag = "corpse_esp_distance",
@@ -4625,7 +4641,7 @@ esp_section:Toggle({
     end,
 })
 
-esp_section:ColorPicker({
+esp_right_section:ColorPicker({
     name = "corpse color",
     default = Color3.fromRGB(0, 255, 0),
     flag = "corpse_esp_color",
@@ -4634,11 +4650,11 @@ esp_section:ColorPicker({
     end,
 })
 
-esp_section:Separator("item finder")
+esp_right_section:Separator("item finder")
 
 item_finder.enabled = false
 
-esp_section:Toggle({
+esp_right_section:Toggle({
     name = "enable item finder",
     default = false,
     flag = "inv_finder_enabled",
@@ -4647,7 +4663,7 @@ esp_section:Toggle({
     end,
 })
 
-esp_section:Dropdown({
+esp_right_section:Dropdown({
     name = "items to find",
     content = item_finder.items,
     max = 6,
@@ -4658,7 +4674,7 @@ esp_section:Dropdown({
     end,
 })
 
-esp_section:Slider({
+esp_right_section:Slider({
     name = "finder x",
     min = 0,
     max = 2000,
@@ -4670,7 +4686,7 @@ esp_section:Slider({
     end,
 })
 
-esp_section:Slider({
+esp_right_section:Slider({
     name = "finder y",
     min = 0,
     max = 1200,
@@ -4683,13 +4699,13 @@ esp_section:Slider({
 })
 
 -- inventory checker
-esp_section:Separator("inventory checker")
+esp_right_section:Separator("inventory checker")
 
 inventory_checker.enabled = false
 inventory_checker.full = false
 inventory_checker.show_value = false
 
-esp_section:Toggle({
+esp_right_section:Toggle({
     name = "enable inventory checker",
     default = false,
     flag = "inventoryviewer",
@@ -4698,7 +4714,7 @@ esp_section:Toggle({
     end,
 })
 
-esp_section:Toggle({
+esp_right_section:Toggle({
     name = "show full inventory",
     default = false,
     flag = "inventoryviewer_full",
@@ -4707,7 +4723,7 @@ esp_section:Toggle({
     end,
 })
 
-esp_section:Toggle({
+esp_right_section:Toggle({
     name = "show inventory value",
     default = false,
     flag = "inventoryviewer_value",
@@ -4716,7 +4732,7 @@ esp_section:Toggle({
     end,
 })
 
-esp_section:Slider({
+esp_right_section:Slider({
     name = "checker x",
     min = 0,
     max = 2000,
@@ -4728,7 +4744,7 @@ esp_section:Slider({
     end,
 })
 
-esp_section:Slider({
+esp_right_section:Slider({
     name = "checker y",
     min = 0,
     max = 1200,
@@ -4737,6 +4753,79 @@ esp_section:Slider({
     flag = "inventoryviewer_y",
     callback = function(v)
         inventory_checker.y = v
+    end,
+})
+
+----------------------------------------------------------------------
+-- VISUALS: fov + zoom
+----------------------------------------------------------------------
+
+visuals_fov = {
+    enabled = false,
+    size = 70,
+    zoom = false,
+    zoom_size = 10,
+}
+
+do
+    local default_fov = 70
+
+    cheat.utility.new_renderstepped(function()
+        local camera = Workspace.CurrentCamera
+        if not camera then return end
+
+        -- the game scope has priority, the custom fov is skipped while aiming
+        local scoping = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+
+        if visuals_fov.zoom and not scoping then
+            camera.FieldOfView = visuals_fov.zoom_size
+        elseif visuals_fov.enabled and not scoping then
+            camera.FieldOfView = visuals_fov.size
+        elseif not scoping and camera.FieldOfView ~= default_fov then
+            camera.FieldOfView = default_fov
+        end
+    end)
+end
+
+fov_section:Toggle({
+    name = "custom fov",
+    default = false,
+    flag = "misc_fov",
+    callback = function(v)
+        visuals_fov.enabled = v
+    end,
+})
+
+fov_section:Slider({
+    name = "fov size",
+    min = 30,
+    max = 170,
+    default = 70,
+    float = 0.01,
+    flag = "misc_fov_size",
+    callback = function(v)
+        visuals_fov.size = v
+    end,
+})
+
+fov_section:Toggle({
+    name = "zoom",
+    default = false,
+    flag = "misc_zoom",
+    callback = function(v)
+        visuals_fov.zoom = v
+    end,
+})
+
+fov_section:Slider({
+    name = "zoom size",
+    min = 1,
+    max = 90,
+    default = 10,
+    float = 0.01,
+    flag = "misc_zoom_size",
+    callback = function(v)
+        visuals_fov.zoom_size = v
     end,
 })
 
@@ -5497,6 +5586,53 @@ extras_section:Slider({
 })
 
 ----------------------------------------------------------------------
+-- MISC: VEHICLE
+----------------------------------------------------------------------
+
+car_speed = {
+    enabled = false,
+    multiplier = 1.5,
+}
+
+do
+    cheat.utility.new_heartbeat(function()
+        if not car_speed.enabled then return end
+        pcall(function()
+            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            local seat = hum and hum.SeatPart
+            if not (seat and seat:IsA("VehicleSeat")) then return end
+            local look = seat.CFrame.LookVector
+            local current = seat.AssemblyLinearVelocity:Dot(look)
+            local limit = 120 * car_speed.multiplier
+            if current < limit then
+                seat.AssemblyLinearVelocity = look * (current + (2 * car_speed.multiplier))
+            end
+        end)
+    end)
+end
+
+vehicle_section:Toggle({
+    name = "car speed",
+    default = false,
+    flag = "car_speed",
+    callback = function(v)
+        car_speed.enabled = v
+    end,
+})
+
+vehicle_section:Slider({
+    name = "speed multiplier",
+    min = 1,
+    max = 6,
+    default = 1.5,
+    float = 0.01,
+    flag = "car_speed_mult",
+    callback = function(v)
+        car_speed.multiplier = v
+    end,
+})
+
+----------------------------------------------------------------------
 -- MISC: VIEWMODEL + CHAMS
 ----------------------------------------------------------------------
 
@@ -5762,22 +5898,15 @@ sound_section:Toggle({
 -- Nothing is written into a folder that is named after the place id.
 
 local HttpService = game:GetService("HttpService")
-local CONFIG_FOLDER = "settings/centhackV2"
+local CONFIG_FOLDER = "settings"
 
-local CONFIG_GROUPS = {
-    silent_aim = silent_aim,
-    gunmods = gunmods,
-    knifemods = knifemods,
-    misc = misc,
-    world = world,
-    ragebot = ragebot,
-    ug_resolver = ug_resolver,
-    esp_players = esp.settings.players,
-    esp_corpse = esp.settings.corpse,
-}
+-- The library holds the value of every option, so a config is just a list of
+-- those values. Loading it calls the setter of every option, which updates
+-- the menu and the feature state at the same time.
 
 local function encode_value(value)
-    if type(value) == "Color3" then
+    -- a Color3 is userdata, "type" would never match it
+    if typeof(value) == "Color3" then
         return { __type = "color", value = value:ToHex() }
     end
     if type(value) == "table" then
@@ -5796,19 +5925,18 @@ local function encode_value(value)
     return nil
 end
 
-local function apply_saved(target, saved)
-    for k, v in pairs(saved) do
-        local current = target[k]
-        if type(v) == "table" and v.__type == "color" then
-            if type(current) == "Color3" then
-                target[k] = Color3.fromHex(v.value)
-            end
-        elseif type(v) == "table" and type(current) == "table" then
-            apply_saved(current, v)
-        elseif current ~= nil and type(current) == type(v) then
-            target[k] = v
+local function decode_value(value)
+    if type(value) == "table" then
+        if value.__type == "color" then
+            return Color3.fromHex(value.value)
         end
+        local out = {}
+        for k, v in pairs(value) do
+            out[k] = decode_value(v)
+        end
+        return out
     end
+    return value
 end
 
 local function config_path(name)
@@ -5820,11 +5948,14 @@ local function save_config(name)
         return false, "no name"
     end
     local data = {}
-    for group, tbl in pairs(CONFIG_GROUPS) do
-        data[group] = encode_value(tbl)
+    for flag, value in pairs(library.flags) do
+        local encoded = encode_value(value)
+        if encoded ~= nil then
+            data[flag] = encoded
+        end
     end
     if not isfolder(CONFIG_FOLDER) then
-        makefolder(CONFIG_FOLDER)
+        pcall(function() makefolder(CONFIG_FOLDER) end)
     end
     local ok, err = pcall(function()
         writefile(config_path(name), HttpService:JSONEncode(data))
@@ -5849,10 +5980,15 @@ local function load_config(name)
     if not ok or type(decoded) ~= "table" then
         return false, "the config is broken"
     end
-    for group, tbl in pairs(CONFIG_GROUPS) do
-        local saved = decoded[group]
-        if type(saved) == "table" then
-            apply_saved(tbl, saved)
+    local setters = library.setters
+    if not setters then
+        return false, "the ui library has no setters"
+    end
+    for flag, encoded in pairs(decoded) do
+        local setter = setters[flag]
+        if setter then
+            local value = decode_value(encoded)
+            pcall(function() setter(value) end)
         end
     end
     return true
@@ -5930,13 +6066,20 @@ local function refresh_configs()
     pcall(function() config_list:Refresh(names) end)
 end
 
+local function config_notice(text)
+    print("[centhack] " .. text)
+    pcall(function() library:Notify(text, 3) end)
+end
+
 config_section:Button({
     name = "save config",
     callback = function()
         local ok, err = save_config(config_name)
         refresh_configs()
-        if not ok then
-            print("[centhack] could not save the config: " .. tostring(err))
+        if ok then
+            config_notice("config saved: " .. tostring(config_name))
+        else
+            config_notice("could not save the config: " .. tostring(err))
         end
     end,
 })
@@ -5945,10 +6088,11 @@ config_section:Button({
     name = "load config",
     callback = function()
         local ok, err = load_config(config_name)
-        if not ok then
-            print("[centhack] could not load the config: " .. tostring(err))
-        else
+        if ok then
             esp.refresh()
+            config_notice("config loaded: " .. tostring(config_name))
+        else
+            config_notice("could not load the config: " .. tostring(err))
         end
     end,
 })
@@ -5958,8 +6102,10 @@ config_section:Button({
     callback = function()
         local ok, err = delete_config(config_name)
         refresh_configs()
-        if not ok then
-            print("[centhack] could not delete the config: " .. tostring(err))
+        if ok then
+            config_notice("config deleted: " .. tostring(config_name))
+        else
+            config_notice("could not delete the config: " .. tostring(err))
         end
     end,
 })
