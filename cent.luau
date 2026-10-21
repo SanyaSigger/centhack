@@ -248,6 +248,19 @@ local function load_void()
     -- the color picker reads the color channels in lower case, a Color3 only
     -- has R, G and B
     source = source:gsub("hsv%.r", "hsv.R"):gsub("hsv%.g", "hsv.G"):gsub("hsv%.b", "hsv.B")
+
+    -- the scroll of the columns is broken: the magnitude of a Vector2 is
+    -- "Magnitude" and the object the scroll is based on can be missing, so
+    -- every option below the window was unreachable
+    local function replace_plain(text, from, to)
+        local start = text:find(from, 1, true)
+        if not start then return text end
+        return text:sub(1, start - 1) .. to .. text:sub(start + #from)
+    end
+    source = replace_plain(source,
+        "local diff = (Vector2.new(0, mtobjs[self].Position.Y)",
+        "if not closestobj then closestobj = currentclippedobj end local diff = (Vector2.new(0, mtobjs[self].Position.Y)")
+    source = replace_plain(source, ")).magnitude", ")).Magnitude")
     local chunk, err = loadstring(source, "void")
     if not chunk then
         error("centhack: could not compile the ui library: " .. tostring(err))
@@ -3431,6 +3444,7 @@ end
 
 local main_tab = window:Tab("Main")
 local visuals_tab = window:Tab("Visuals")
+local settings_tab = window:Tab("Settings")
 
 -- MAIN TAB ------------------------------------------------------------------
 -- left: main + rage
@@ -3445,6 +3459,11 @@ local esp_section = visuals_tab:Section({ name = "esp", side = "left" })
 -- right: lightning + other visuals
 local lightning_section = visuals_tab:Section({ name = "lightning", side = "right" })
 local other_section = visuals_tab:Section({ name = "other visuals", side = "right" })
+
+-- SETTINGS TAB ----------------------------------------------------------------
+-- left: config manager | right: theme + info
+local config_section = settings_tab:Section({ name = "config", side = "left" })
+local theme_section = settings_tab:Section({ name = "theme", side = "right" })
 
 ----------------------------------------------------------------------
 -- MAIN: silent aim
@@ -3592,6 +3611,30 @@ main_section:ColorPicker({
     flag = "silentaim_tracer_color2",
     callback = function(v)
         silent_aim.tracer_color2 = v
+    end,
+})
+
+main_section:Slider({
+    name = "tracer size",
+    min = 0.1,
+    max = 10,
+    default = 0.5,
+    float = 1,
+    flag = "tracer_thickness",
+    callback = function(v)
+        silent_aim.tracer_thickness = v
+    end,
+})
+
+main_section:Slider({
+    name = "tracer lifetime",
+    min = 0.1,
+    max = 5,
+    default = 1,
+    float = 1,
+    flag = "tracer_lifetime",
+    callback = function(v)
+        silent_aim.tracer_lifetime = v
     end,
 })
 
@@ -4862,6 +4905,134 @@ other_section:Slider({
     flag = "melee_skin_scale",
     callback = function(v)
         knifemods.melee_skin_scale = v / 10
+    end,
+})
+
+----------------------------------------------------------------------
+-- SETTINGS: CONFIG MANAGER
+----------------------------------------------------------------------
+-- The library saves the value of every option, so a config holds the whole
+-- menu. The files live in the "centhackV2" folder of the executor.
+
+local config_name = "centhack"
+local config_universal = false
+
+config_section:Label("config manager")
+
+config_section:Box({
+    placeholder = "config name",
+    default = "centhack",
+    flag = "config_name",
+    callback = function(str)
+        config_name = str
+    end,
+})
+
+config_section:Toggle({
+    name = "universal (all places)",
+    default = false,
+    flag = "config_universal",
+    callback = function(v)
+        config_universal = v
+    end,
+})
+
+local config_list = config_section:Dropdown({
+    name = "saved configs",
+    content = { "no configs" },
+    default = "no configs",
+    flag = "config_list",
+    callback = function(v)
+        if v and v ~= "no configs" then
+            config_name = v
+        end
+    end,
+})
+
+local function refresh_configs()
+    local ok, configs = pcall(function() return library:GetConfigs(config_universal) end)
+    if not ok or type(configs) ~= "table" then return end
+    table.sort(configs)
+    if #configs == 0 then
+        configs = { "no configs" }
+    end
+    pcall(function() config_list:Refresh(configs) end)
+end
+
+config_section:Button({
+    name = "save config",
+    callback = function()
+        local name = config_name
+        if not name or name == "" then name = "centhack" end
+        local ok, err = pcall(function() library:SaveConfig(name, config_universal) end)
+        refresh_configs()
+        if not ok then
+            print("[centhack] could not save the config: " .. tostring(err))
+        end
+    end,
+})
+
+config_section:Button({
+    name = "load config",
+    callback = function()
+        local name = config_name
+        if not name or name == "" then name = "centhack" end
+        local ok, err = pcall(function() library:LoadConfig(name, config_universal) end)
+        if not ok then
+            print("[centhack] could not load the config: " .. tostring(err))
+        end
+    end,
+})
+
+config_section:Button({
+    name = "delete config",
+    callback = function()
+        local name = config_name
+        if not name or name == "" then name = "centhack" end
+        local ok, err = pcall(function() library:DeleteConfig(name, config_universal) end)
+        refresh_configs()
+        if not ok then
+            print("[centhack] could not delete the config: " .. tostring(err))
+        end
+    end,
+})
+
+config_section:Button({
+    name = "refresh list",
+    callback = refresh_configs,
+})
+
+-- THEME ---------------------------------------------------------------------
+local themes = { "Default" }
+pcall(function()
+    local list = library:GetThemes()
+    if type(list) == "table" and #list > 0 then themes = list end
+end)
+
+theme_section:Dropdown({
+    name = "theme",
+    content = themes,
+    default = themes[1],
+    flag = "library_theme",
+    callback = function(v)
+        pcall(function() library:SetTheme(v) end)
+    end,
+})
+
+theme_section:Label("centhack v2")
+theme_section:Label("menu key: right shift")
+
+theme_section:Button({
+    name = "close menu",
+    callback = function()
+        library:Close()
+    end,
+})
+
+theme_section:Button({
+    name = "unload ui",
+    callback = function()
+        pcall(function() library:Unload() end)
     end,
 })
 
