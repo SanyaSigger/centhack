@@ -288,8 +288,8 @@ end))
 
 local window = library:Load({
     name = "CentHackV2",
-    sizex = 620,
-    sizey = 690,
+    sizex = 660,
+    sizey = 1000,
     folder = "centhackV2",
     extension = "cfg",
 })
@@ -330,6 +330,9 @@ silent_aim = {
     tracer_color2 = Color3.new(0, 0.5, 1),
     tracer_thickness = 0.5,
     tracer_lifetime = 1,
+    target_tracer = false,
+    target_tracer_color = Color3.new(1, 1, 1),
+    target_tracer_thickness = 1,
     target_part = nil,
     is_npc = false,
     isvisible = false,
@@ -359,6 +362,7 @@ gunmods = {
     rapid_fire_delay = 0.05,
     auto_fill_mags = false,
     instant_reload = false,
+    unlock_firemodes = false,
     no_melee_cooldown = false,
     melee_reach = false,
     melee_reach_dist = 5,
@@ -387,6 +391,7 @@ world = {
 misc = {
     hit_stars = false,
     hit_stars_amount = 100,
+    hit_stars_color = Color3.new(1, 1, 1),
     hitmarker = false,
     hitmarker_color = Color3.new(1, 1, 1),
     hitmarker_outline_color = Color3.new(0, 0, 0),
@@ -1163,7 +1168,7 @@ cheat.utility.spawn_kill_effect = function(pos)
     local emit = Instance.new("ParticleEmitter")
     emit.Texture = "rbxasset://textures/particles/sparkles_main.dds"
     emit.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.5), NumberSequenceKeypoint.new(1, 0) })
-    emit.Color = ColorSequence.new(Color3.new(1, 1, 1))
+    emit.Color = ColorSequence.new(misc.hit_stars_color or Color3.new(1, 1, 1))
     emit.LightEmission = 1
     emit.LightInfluence = 0
     emit.ZOffset = 1
@@ -1215,25 +1220,37 @@ local function draw_tracer(origin, position)
     local lifetime = math.max(tonumber(silent_aim.tracer_lifetime) or 1, 0.1)
     local style = silent_aim.tracer_style
 
-    -- a plain cylinder, no beam at all
+    -- a plain cylinder, no beam at all. A part can not be longer than 2048
+    -- studs, so a long shot is split into several parts.
     if style == "part" then
         local parent = tracer_parent()
-        local part = Instance.new("Part", parent)
         local direction = position - origin
         local distance = direction.Magnitude
-        if distance < 0.5 then part:Destroy() return end
-        part.Anchored = true
-        part.CanCollide = false
-        part.CanTouch = false
-        part.CanQuery = false
-        part.CastShadow = false
-        part.Material = Enum.Material.Neon
-        part.Color = color
-        part.Transparency = 0.15
-        part.Size = _Vector3new(thickness, thickness, distance)
-        part.CFrame = CFrame.lookAt(origin, position)
+        if distance < 0.5 then return end
+
+        local parts = {}
+        local segments = math.max(1, math.ceil(distance / 1900))
+        for i = 1, segments do
+            local a = origin + direction * ((i - 1) / segments)
+            local b = origin + direction * (i / segments)
+            local part = Instance.new("Part", parent)
+            part.Anchored = true
+            part.CanCollide = false
+            part.CanTouch = false
+            part.CanQuery = false
+            part.CastShadow = false
+            part.Material = Enum.Material.Neon
+            part.Color = color
+            part.Transparency = 0.15
+            part.Size = _Vector3new(thickness, thickness, math.max((b - a).Magnitude, 0.01))
+            part.CFrame = CFrame.lookAt(a, b)
+            parts[#parts + 1] = part
+        end
+
         task.delay(lifetime, function()
-            pcall(function() part:Destroy() end)
+            for _, part in ipairs(parts) do
+                pcall(function() part:Destroy() end)
+            end
         end)
         return
     end
@@ -1661,6 +1678,38 @@ cheat.utility.new_renderstepped(function()
 end)
 
 ----------------------------------------------------------------------
+-- TARGET TRACER
+----------------------------------------------------------------------
+-- A line from the cursor to the target the silent aim is looking at.
+
+local target_tracer = cheat.utility.new_drawing("Line", {
+    From = _Vector2new(0, 0),
+    To = _Vector2new(0, 0),
+    Thickness = 1,
+    Color = Color3.new(1, 1, 1),
+    Transparency = 1,
+    Visible = false,
+    ZIndex = 90,
+})
+
+cheat.utility.new_renderstepped(function()
+    if not (silent_aim.target_tracer and silent_aim.target_part) then
+        target_tracer.Visible = false
+        return
+    end
+    local screen, onscreen = Camera:WorldToViewportPoint(silent_aim.target_part.Position)
+    if not onscreen then
+        target_tracer.Visible = false
+        return
+    end
+    target_tracer.From = _Vector2new(Mouse.X, Mouse.Y)
+    target_tracer.To = _Vector2new(screen.X, screen.Y)
+    target_tracer.Color = silent_aim.target_tracer_color
+    target_tracer.Thickness = silent_aim.target_tracer_thickness
+    target_tracer.Visible = true
+end)
+
+----------------------------------------------------------------------
 -- HITMARKERS
 ----------------------------------------------------------------------
 
@@ -1926,6 +1975,11 @@ local function hook_update_client()
                         if rawget(self, "WalkBob") then self.WalkBob = 0 end
                         if rawget(self, "IdleSway") then self.IdleSway = 0 end
                         if rawget(self, "WalkSway") then self.WalkSway = 0 end
+                    end)
+                end
+                if gunmods.unlock_firemodes and rawget(self, "FireModes") then
+                    pcall(function()
+                        self.FireModes = { "Auto", "Semi" }
                     end)
                 end
                 if gunmods.rapid_fire then
@@ -3438,12 +3492,457 @@ do
     knifemods.apply_skin = apply_native_melee_skin
 end
 ----------------------------------------------------------------------
+-- MISC MODULE
+----------------------------------------------------------------------
+-- Viewmodel offset, the viewmodel chams, the custom sounds, the custom
+-- muzzle flash and the freecam. Ported from skid/pin.retaV2.luau.
+
+misc.viewmodel = {
+    x = 0,
+    y = 0,
+    z = 0,
+}
+
+misc.chams = {
+    arms = false,
+    arms_color = Color3.new(1, 1, 1),
+    arms_material = "SmoothPlastic",
+    gun = false,
+    gun_color = Color3.new(1, 1, 1),
+    gun_material = "SmoothPlastic",
+    remove_arms = false,
+}
+
+misc.sounds = {
+    hit_enabled = false,
+    hit_id = "rbxassetid://6607204501",
+    hit_volume = 1,
+    gun_enabled = false,
+    gun_id = "rbxassetid://7011577038",
+    gun_volume = 1,
+    muzzle_flash = false,
+    muzzle_flash_color = Color3.fromRGB(255, 100, 0),
+}
+
+misc.freecam = {
+    enabled = false,
+    speed = 50,
+    show_distance = true,
+}
+
+-- the sound lists of pin.reta
+misc.hit_sounds = {
+    ["never lose"] = "rbxassetid://6607204501",
+    ["rust"] = "rbxassetid://92570611018210",
+    ["gamesense"] = "rbxassetid://4817809188",
+    ["fatalety"] = "rbxassetid://94204395881101",
+    ["fahhhh"] = "rbxassetid://134512042804789",
+    ["csgo kill"] = "rbxassetid://7269900245",
+    ["csgo headshot"] = "rbxassetid://6937353691",
+    ["minecraft bow"] = "rbxassetid://1053296915",
+    ["fortnite headshot"] = "rbxassetid://2513174484",
+    ["arsenal headshot"] = "rbxassetid://8522515167",
+    ["fallen headshot"] = "rbxassetid://988593556",
+    ["mogged"] = "rbxassetid://130607335183129",
+    ["moan"] = "rbxassetid://7606020137",
+    ["mommy asmr"] = "rbxassetid://111500468013640",
+    ["one"] = "rbxassetid://7380502345",
+    ["tung"] = "rbxassetid://98404209829298",
+}
+
+misc.gun_sounds = {
+    ["rust ak"] = "rbxassetid://7011577038",
+    ["minecraft bow"] = "rbxassetid://3442683707",
+    ["fallen pkm"] = "rbxassetid://4803858563",
+    ["Scar20"] = "rbxassetid://91510933153450",
+    ["SSg08"] = "rbxassetid://2476571739",
+    ["AWP"] = "rbxassetid://2753888131",
+    ["AK47-CS:GO"] = "rbxassetid://2476570846",
+    ["G3SG1"] = "rbxassetid://18512294165",
+    ["Deagle"] = "rbxassetid://82286818216627",
+    ["USP-S"] = "rbxassetid://4108910200",
+    ["USP"] = "rbxassetid://2515499360",
+    ["HK416"] = "rbxassetid://8241511326",
+    ["M4A1"] = "rbxassetid://9057685835",
+    ["SKS"] = "rbxassetid://8660502251",
+    ["SKS-Silenced"] = "rbxassetid://8660503874",
+    ["FiveSeven"] = "rbxassetid://9057668558",
+    ["AK47-Tarkov"] = "rbxassetid://122655160661494",
+}
+
+-- the sounds of the game that are replaced
+local gun_sound_names = {
+    FireSound = true,
+    FireFarSound = true,
+    FireSoundSupressed = true,
+}
+
+local impact_sound_ids = {
+    ["rbxassetid://4585382589"] = true,
+    ["rbxassetid://4585351098"] = true,
+    ["rbxassetid://4585382046"] = true,
+    ["rbxassetid://4585364605"] = true,
+}
+
+local function play_sound(sound_id, volume)
+    local sound = Instance.new("Sound")
+    sound.SoundId = sound_id
+    sound.Volume = volume
+    if sound_id == "rbxassetid://7606020137" then
+        sound.TimePosition = 2
+    end
+    sound.Parent = SoundService
+    sound:Play()
+    Debris:AddItem(sound, 5)
+end
+misc.play_sound = play_sound
+
+-- the custom muzzle flash: stars at the muzzle
+local function emit_muzzle_flash()
+    local camera = Workspace.CurrentCamera
+    if not camera then return end
+    local vm = camera:FindFirstChildOfClass("Model")
+    local item = vm and vm:FindFirstChild("Item")
+    local muzzle = (item and (item:FindFirstChild("Muzzle") or item:FindFirstChild("AimPart")))
+        or (vm and vm:FindFirstChild("AimPart"))
+    if not muzzle then return end
+
+    local attachment = Instance.new("Attachment")
+    attachment.Parent = muzzle
+
+    local emitter = Instance.new("ParticleEmitter")
+    emitter.Texture = "rbxassetid://12555502283"
+    emitter.Color = ColorSequence.new(misc.sounds.muzzle_flash_color)
+    emitter.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.4),
+        NumberSequenceKeypoint.new(1, 0),
+    })
+    emitter.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    emitter.Lifetime = NumberRange.new(0.3, 0.5)
+    emitter.Speed = NumberRange.new(15, 35)
+    emitter.SpreadAngle = Vector2.new(60, 60)
+    emitter.ZOffset = 1
+    emitter.Rate = 0
+    emitter.Parent = attachment
+    emitter:Emit(8)
+
+    task.delay(0.6, function()
+        pcall(function() emitter:Destroy() end)
+        pcall(function() attachment:Destroy() end)
+    end)
+end
+
+-- the sounds of the game are replaced in place
+local function handle_sound(sound)
+    if not sound or not sound:IsA("Sound") then return end
+
+    if gun_sound_names[sound.Name] then
+        if misc.sounds.gun_enabled then
+            sound.SoundId = misc.sounds.gun_id
+            sound.Volume = misc.sounds.gun_volume
+        end
+        if misc.sounds.muzzle_flash then
+            emit_muzzle_flash()
+        end
+    elseif impact_sound_ids[sound.SoundId] then
+        if misc.sounds.hit_enabled then
+            sound.SoundId = misc.sounds.hit_id
+            sound.Volume = misc.sounds.hit_volume
+        end
+    end
+end
+
+if game.DescendantAdded then
+    cheat.utility.track_connection(game.DescendantAdded:Connect(handle_sound))
+end
+pcall(function()
+    for _, child in ipairs(game:GetDescendants()) do
+        handle_sound(child)
+    end
+end)
+
+----------------------------------------------------------------------
+-- VIEWMODEL OFFSET + CHAMS
+----------------------------------------------------------------------
+
+do
+    -- the parts of the viewmodel that are never chams
+    local skip_parts = {
+        Muzzle = true, SightMark = true, AimPart = true, SmokePart = true,
+        FirePoint = true, Flash = true, Flame = true,
+    }
+
+    local function get_viewmodel()
+        local camera = Workspace.CurrentCamera
+        return camera and camera:FindFirstChildOfClass("Model")
+    end
+
+    -- the offset is applied to the joints of the viewmodel
+    local function apply_viewmodel_offset(vm)
+        if not vm then return end
+        local hrp = vm:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local vec = _Vector3new(misc.viewmodel.x, misc.viewmodel.y, misc.viewmodel.z)
+        local function apply_joint(name)
+            local joint = hrp:FindFirstChild(name)
+            if joint and joint:IsA("Motor6D") then
+                local orig = joint:GetAttribute("OriginalC0")
+                if not orig then
+                    orig = joint.C0
+                    joint:SetAttribute("OriginalC0", orig)
+                end
+                joint.C0 = orig + vec
+            end
+        end
+        apply_joint("LeftUpperArm")
+        apply_joint("RightUpperArm")
+        apply_joint("ItemRoot")
+        apply_joint("Motor6D")
+    end
+
+    -- the gun lives in the "Item" model, the arms are direct children of
+    -- the viewmodel, both get their own color and material
+    local function apply_chams(vm)
+        if not vm then return end
+        local settings = misc.chams
+
+        local item = vm:FindFirstChild("Item")
+        if item and settings.gun then
+            for _, part in ipairs(item:GetDescendants()) do
+                if part:IsA("BasePart") and not skip_parts[part.Name]
+                    and part.Transparency < 1
+                then
+                    part.Material = Enum.Material[settings.gun_material] or Enum.Material.SmoothPlastic
+                    part.Color = settings.gun_color
+                    part.Reflectance = 0
+                    local sa = part:FindFirstChildOfClass("SurfaceAppearance")
+                    if sa then sa:Destroy() end
+                end
+            end
+        end
+
+        -- the arms are hidden or chams
+        for _, child in ipairs(vm:GetChildren()) do
+            local is_arm = false
+            if child:IsA("BasePart") then
+                is_arm = child.Name:find("Hand") or child.Name:find("Arm")
+            elseif child:IsA("Model") then
+                is_arm = child.Name:find("LL") or child.Name:find("LH")
+                    or child.Name:find("RL") or child.Name:find("RH")
+            end
+            if is_arm then
+                if settings.remove_arms then
+                    child.Transparency = 1
+                elseif settings.arms then
+                    for _, part in ipairs(child:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.Material = Enum.Material[settings.arms_material]
+                                or Enum.Material.SmoothPlastic
+                            part.Color = settings.arms_color
+                            part.Reflectance = 0
+                            local sa = part:FindFirstChildOfClass("SurfaceAppearance")
+                            if sa then sa:Destroy() end
+                        end
+                    end
+                    if child:IsA("BasePart") then
+                        child.Material = Enum.Material[settings.arms_material]
+                            or Enum.Material.SmoothPlastic
+                        child.Color = settings.arms_color
+                    end
+                end
+            end
+        end
+    end
+
+    cheat.utility.new_heartbeat(function()
+        local has_offset = misc.viewmodel.x ~= 0 or misc.viewmodel.y ~= 0
+            or misc.viewmodel.z ~= 0
+        local settings = misc.chams
+        local has_chams = settings.arms or settings.gun or settings.remove_arms
+        if not has_offset and not has_chams then return end
+        local vm = get_viewmodel()
+        if not vm then return end
+        if has_offset then apply_viewmodel_offset(vm) end
+        if has_chams then apply_chams(vm) end
+    end)
+end
+
+----------------------------------------------------------------------
+-- FREECAM
+----------------------------------------------------------------------
+-- The camera is moved by the script, the character stays where it is. A
+-- ghost of the character shows where the body really is.
+
+do
+    local freecam_cf = nil
+    local freecam_part = nil
+    local freecam_ghost = nil
+    local freecam_label = nil
+    local pitch, yaw = 0, 0
+
+    local function destroy_freecam()
+        local camera = Workspace.CurrentCamera
+        if camera then camera.CameraType = Enum.CameraType.Custom end
+        freecam_cf = nil
+        pcall(function() LocalPlayer.ReplicationFocus = nil end)
+        if freecam_part then
+            pcall(function() freecam_part:Destroy() end)
+            freecam_part = nil
+        end
+        if freecam_ghost then
+            pcall(function() freecam_ghost:Destroy() end)
+            freecam_ghost = nil
+        end
+        if freecam_label then
+            cheat.utility.remove_drawing(freecam_label)
+            freecam_label = nil
+        end
+    end
+
+    local function start_freecam()
+        local camera = Workspace.CurrentCamera
+        if not camera then return end
+
+        freecam_cf = camera.CFrame
+        pitch, yaw = freecam_cf:ToOrientation()
+        camera.CameraType = Enum.CameraType.Scriptable
+
+        freecam_part = Instance.new("Part")
+        freecam_part.Name = "FreecamFocus"
+        freecam_part.Anchored = true
+        freecam_part.CanCollide = false
+        freecam_part.Transparency = 1
+        freecam_part.Size = _Vector3new(1, 1, 1)
+        freecam_part.Position = freecam_cf.Position
+        freecam_part.Parent = Workspace.Terrain
+        pcall(function() LocalPlayer.ReplicationFocus = freecam_part end)
+
+        -- the ghost shows where the character is
+        local character = LocalPlayer.Character
+        if character then
+            freecam_ghost = character:Clone()
+            freecam_ghost.Name = "FreecamGhost"
+            for _, v in ipairs(freecam_ghost:GetDescendants()) do
+                if v:IsA("Humanoid") or v:IsA("Script") or v:IsA("LocalScript")
+                    or v:IsA("Decal") or v:IsA("Texture") or v:IsA("Clothing")
+                    or v:IsA("Accessory") or v:IsA("SurfaceAppearance")
+                then
+                    pcall(function() v:Destroy() end)
+                elseif v:IsA("BasePart") then
+                    v.Material = Enum.Material.Neon
+                    v.Color = Color3.new(1, 1, 1)
+                    v.Transparency = 0.3
+                    v.Anchored = true
+                    v.CanCollide = false
+                    v.CanTouch = false
+                    v.CanQuery = false
+                    v.Massless = true
+                end
+            end
+            freecam_ghost.Parent = Workspace.Terrain
+        end
+
+        freecam_label = cheat.utility.new_drawing("Text", {
+            Visible = false,
+            Size = 13,
+            Color = esp.settings.corpse.color,
+            Outline = true,
+            ZIndex = 90,
+        })
+    end
+
+    cheat.utility.new_renderstepped(function(dt)
+        if not misc.freecam.enabled then
+            if freecam_cf then destroy_freecam() end
+            return
+        end
+        if not freecam_cf then start_freecam() end
+
+        local camera = Workspace.CurrentCamera
+        if not camera then return end
+
+        -- the right mouse button looks around
+        if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+            UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+            local delta = UserInputService:GetMouseDelta()
+            pitch = math.clamp(pitch - delta.Y * 0.005, -math.pi / 2 + 0.01, math.pi / 2 - 0.01)
+            yaw = yaw - delta.X * 0.005
+        else
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        end
+
+        local move = _Vector3new(0, 0, 0)
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + _Vector3new(0, 0, 1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move + _Vector3new(0, 0, -1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move + _Vector3new(-1, 0, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + _Vector3new(1, 0, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.E) or UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            move = move + _Vector3new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Q) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            move = move + _Vector3new(0, -1, 0)
+        end
+
+        freecam_cf = CFrame.new(freecam_cf.Position)
+            * CFrame.Angles(0, yaw, 0) * CFrame.Angles(pitch, 0, 0)
+
+        if move.Magnitude > 0 then
+            move = move.Unit
+            freecam_cf = freecam_cf + (freecam_cf.RightVector * move.X
+                + freecam_cf.UpVector * move.Y
+                + freecam_cf.LookVector * move.Z) * (misc.freecam.speed * (dt or 0.016))
+        end
+
+        camera.CFrame = freecam_cf
+        if freecam_part then
+            freecam_part.CFrame = freecam_cf
+            pcall(function() LocalPlayer.ReplicationFocus = freecam_part end)
+        end
+
+        -- the distance to the real character
+        if freecam_label and freecam_ghost then
+            local root = freecam_ghost:FindFirstChild("HumanoidRootPart")
+            if root and misc.freecam.show_distance then
+                local screen, onscreen = Camera:WorldToViewportPoint(root.Position)
+                if onscreen then
+                    local distance = mathfloor((freecam_cf.Position - root.Position).Magnitude)
+                    freecam_label.Text = string.format("[%d]", distance)
+                    freecam_label.Position = screen
+                    freecam_label.Visible = true
+                else
+                    freecam_label.Visible = false
+                end
+            else
+                freecam_label.Visible = false
+            end
+        end
+
+        -- the character stands still
+        local character = LocalPlayer.Character
+        if character then
+            local root = character:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.AssemblyLinearVelocity = _Vector3new(0, root.AssemblyLinearVelocity.Y, 0)
+            end
+            local hum = character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum:Move(_Vector3new(0, 0, 0), false)
+            end
+        end
+    end)
+end
+
+----------------------------------------------------------------------
 -- UI
 ----------------------------------------------------------------------
 -- The void library: window -> tab -> section -> element.
 
 local main_tab = window:Tab("Main")
 local visuals_tab = window:Tab("Visuals")
+local misc_tab = window:Tab("Misc")
 local settings_tab = window:Tab("Settings")
 
 -- MAIN TAB ------------------------------------------------------------------
@@ -3456,9 +3955,15 @@ local weapon_section = main_tab:Section({ name = "Weaponmods", side = "right" })
 -- VISUALS TAB ---------------------------------------------------------------
 -- left: esp
 local esp_section = visuals_tab:Section({ name = "esp", side = "left" })
+local esp_extra_section = visuals_tab:Section({ name = "esp extras", side = "left" })
 -- right: lightning + other visuals
 local lightning_section = visuals_tab:Section({ name = "lightning", side = "right" })
 local other_section = visuals_tab:Section({ name = "other visuals", side = "right" })
+
+-- MISC TAB -------------------------------------------------------------------
+-- left: viewmodel + chams | right: sounds + freecam
+local viewmodel_section = misc_tab:Section({ name = "viewmodel", side = "left" })
+local sound_section = misc_tab:Section({ name = "sounds", side = "right" })
 
 -- SETTINGS TAB ----------------------------------------------------------------
 -- left: config manager | right: theme + info
@@ -3635,6 +4140,36 @@ main_section:Slider({
     flag = "tracer_lifetime",
     callback = function(v)
         silent_aim.tracer_lifetime = v
+    end,
+})
+
+main_section:Toggle({
+    name = "target tracer",
+    default = false,
+    flag = "silentaim_target_tracer",
+    callback = function(v)
+        silent_aim.target_tracer = v
+    end,
+})
+
+main_section:ColorPicker({
+    name = "target tracer color",
+    default = Color3.new(1, 1, 1),
+    flag = "silentaim_target_tracer_color",
+    callback = function(v)
+        silent_aim.target_tracer_color = v
+    end,
+})
+
+main_section:Slider({
+    name = "target tracer size",
+    min = 1,
+    max = 10,
+    default = 1,
+    float = 1,
+    flag = "silentaim_target_tracer_thickness",
+    callback = function(v)
+        silent_aim.target_tracer_thickness = v
     end,
 })
 
@@ -3861,6 +4396,15 @@ weapon_section:Slider({
     flag = "gunmods_rapidfire_delay",
     callback = function(v)
         gunmods.rapid_fire_delay = v
+    end,
+})
+
+weapon_section:Toggle({
+    name = "unlock fire modes",
+    default = false,
+    flag = "gunmods_unlockfiremodes",
+    callback = function(v)
+        gunmods.unlock_firemodes = v
     end,
 })
 
@@ -4327,30 +4871,30 @@ esp_section:ColorPicker({
 })
 
 -- HEALTH --------------------------------------------------------------------
-esp_section:Separator("health")
+esp_extra_section:Separator("health")
 
-esp_section:Toggle({
+esp_extra_section:Toggle({
     name = "health",
     default = false,
     flag = "esp_health",
     callback = function(v) es.health = v end,
 })
 
-esp_section:ColorPicker({
+esp_extra_section:ColorPicker({
     name = "health color top",
     default = Color3.new(0, 1, 0),
     flag = "esp_health_top",
     callback = function(v) es.health_color_top = v end,
 })
 
-esp_section:ColorPicker({
+esp_extra_section:ColorPicker({
     name = "health color bottom",
     default = Color3.new(1, 0, 0),
     flag = "esp_health_bottom",
     callback = function(v) es.health_color_bottom = v end,
 })
 
-esp_section:Slider({
+esp_extra_section:Slider({
     name = "health bar thickness",
     min = 1,
     max = 10,
@@ -4363,7 +4907,7 @@ esp_section:Slider({
     end,
 })
 
-esp_section:Slider({
+esp_extra_section:Slider({
     name = "health glow size",
     min = 1,
     max = 20,
@@ -4377,16 +4921,16 @@ esp_section:Slider({
 })
 
 -- SKELETON ------------------------------------------------------------------
-esp_section:Separator("skeleton")
+esp_extra_section:Separator("skeleton")
 
-esp_section:Toggle({
+esp_extra_section:Toggle({
     name = "skeleton",
     default = false,
     flag = "esp_skeleton",
     callback = function(v) es.skeleton = v end,
 })
 
-esp_section:ColorPicker({
+esp_extra_section:ColorPicker({
     name = "skeleton color",
     default = Color3.new(1, 1, 1),
     flag = "esp_skeleton_color",
@@ -4396,7 +4940,7 @@ esp_section:ColorPicker({
     end,
 })
 
-esp_section:Slider({
+esp_extra_section:Slider({
     name = "skeleton transparency",
     min = 0,
     max = 100,
@@ -4410,23 +4954,23 @@ esp_section:Slider({
 })
 
 -- CHAMS ---------------------------------------------------------------------
-esp_section:Separator("chams")
+esp_extra_section:Separator("chams")
 
-esp_section:Toggle({
+esp_extra_section:Toggle({
     name = "chams",
     default = false,
     flag = "esp_chams",
     callback = function(v) es.chams = v end,
 })
 
-esp_section:Toggle({
+esp_extra_section:Toggle({
     name = "chams visible only",
     default = false,
     flag = "esp_chams_visible_only",
     callback = function(v) es.chams_visible_only = v end,
 })
 
-esp_section:Dropdown({
+esp_extra_section:Dropdown({
     name = "chams material",
     content = { "Neon", "ForceField", "Glass", "SmoothPlastic" },
     default = "Neon",
@@ -4434,7 +4978,7 @@ esp_section:Dropdown({
     callback = function(v) es.chams_material = v end,
 })
 
-esp_section:ColorPicker({
+esp_extra_section:ColorPicker({
     name = "chams color",
     default = Color3.new(1, 1, 1),
     flag = "esp_chams_fill_color",
@@ -4444,7 +4988,7 @@ esp_section:ColorPicker({
     end,
 })
 
-esp_section:Slider({
+esp_extra_section:Slider({
     name = "chams transparency",
     min = 0,
     max = 100,
@@ -4457,7 +5001,7 @@ esp_section:Slider({
     end,
 })
 
-esp_section:ColorPicker({
+esp_extra_section:ColorPicker({
     name = "chams outline color",
     default = Color3.new(1, 1, 1),
     flag = "esp_chams_outline_color",
@@ -4468,9 +5012,9 @@ esp_section:ColorPicker({
 })
 
 -- MISC ----------------------------------------------------------------------
-esp_section:Separator("misc")
+esp_extra_section:Separator("misc")
 
-esp_section:Toggle({
+esp_extra_section:Toggle({
     name = "infinite range",
     default = false,
     flag = "esp_infinite_range",
@@ -4480,7 +5024,7 @@ esp_section:Toggle({
     end,
 })
 
-esp_section:Slider({
+esp_extra_section:Slider({
     name = "esp font size",
     min = 1,
     max = 30,
@@ -4493,7 +5037,7 @@ esp_section:Slider({
     end,
 })
 
-esp_section:Dropdown({
+esp_extra_section:Dropdown({
     name = "esp font",
     content = { "Monospace", "Code", "Plex", "UI", "System" },
     default = "Monospace",
@@ -4504,14 +5048,14 @@ esp_section:Dropdown({
     end,
 })
 
-esp_section:Toggle({
+esp_extra_section:Toggle({
     name = "highlight high kd (>5)",
     default = false,
     flag = "esp_high_kd_marker",
     callback = function(v) es.high_kd_marker = v end,
 })
 
-esp_section:ColorPicker({
+esp_extra_section:ColorPicker({
     name = "cheater outline color",
     default = Color3.fromRGB(255, 0, 0),
     flag = "esp_high_kd_color",
@@ -4809,6 +5353,15 @@ other_section:Toggle({
     end,
 })
 
+other_section:ColorPicker({
+    name = "stars color",
+    default = Color3.new(1, 1, 1),
+    flag = "killeffect_color",
+    callback = function(v)
+        misc.hit_stars_color = v
+    end,
+})
+
 other_section:Slider({
     name = "stars amount",
     min = 10,
@@ -4905,6 +5458,264 @@ other_section:Slider({
     flag = "melee_skin_scale",
     callback = function(v)
         knifemods.melee_skin_scale = v / 10
+    end,
+})
+
+----------------------------------------------------------------------
+-- MISC: VIEWMODEL + CHAMS
+----------------------------------------------------------------------
+
+viewmodel_section:Label("viewmodel offset")
+
+viewmodel_section:Slider({
+    name = "offset x",
+    min = -5,
+    max = 5,
+    default = 0,
+    float = 2,
+    flag = "viewmodel_x",
+    callback = function(v)
+        misc.viewmodel.x = v
+    end,
+})
+
+viewmodel_section:Slider({
+    name = "offset y",
+    min = -5,
+    max = 5,
+    default = 0,
+    float = 2,
+    flag = "viewmodel_y",
+    callback = function(v)
+        misc.viewmodel.y = v
+    end,
+})
+
+viewmodel_section:Slider({
+    name = "offset z",
+    min = -5,
+    max = 5,
+    default = 0,
+    float = 2,
+    flag = "viewmodel_z",
+    callback = function(v)
+        misc.viewmodel.z = v
+    end,
+})
+
+viewmodel_section:Separator("chams")
+
+viewmodel_section:Toggle({
+    name = "arm chams",
+    default = false,
+    flag = "ac",
+    callback = function(v)
+        misc.chams.arms = v
+    end,
+})
+
+viewmodel_section:ColorPicker({
+    name = "arm chams color",
+    default = Color3.new(1, 1, 1),
+    flag = "acc",
+    callback = function(v)
+        misc.chams.arms_color = v
+    end,
+})
+
+viewmodel_section:Dropdown({
+    name = "arm chams material",
+    content = { "SmoothPlastic", "ForceField", "Neon", "Plastic", "Glass", "Gold" },
+    default = "SmoothPlastic",
+    flag = "acm",
+    callback = function(v)
+        misc.chams.arms_material = v
+    end,
+})
+
+viewmodel_section:Toggle({
+    name = "gun chams",
+    default = false,
+    flag = "gm",
+    callback = function(v)
+        misc.chams.gun = v
+    end,
+})
+
+viewmodel_section:ColorPicker({
+    name = "gun chams color",
+    default = Color3.new(1, 1, 1),
+    flag = "gcc",
+    callback = function(v)
+        misc.chams.gun_color = v
+    end,
+})
+
+viewmodel_section:Dropdown({
+    name = "gun chams material",
+    content = { "SmoothPlastic", "ForceField", "Neon", "Plastic", "Glass", "Gold" },
+    default = "SmoothPlastic",
+    flag = "gcm",
+    callback = function(v)
+        misc.chams.gun_material = v
+    end,
+})
+
+viewmodel_section:Toggle({
+    name = "remove arms",
+    default = false,
+    flag = "noarms",
+    callback = function(v)
+        misc.chams.remove_arms = v
+    end,
+})
+
+----------------------------------------------------------------------
+-- MISC: SOUNDS + FREECAM
+----------------------------------------------------------------------
+
+sound_section:Toggle({
+    name = "custom hit sound",
+    default = false,
+    flag = "custom_hitsound_enable",
+    callback = function(v)
+        misc.sounds.hit_enabled = v
+    end,
+})
+
+sound_section:Dropdown({
+    name = "hit sound",
+    content = { "never lose", "rust", "gamesense", "fatalety", "fahhhh", "csgo kill",
+        "csgo headshot", "minecraft bow", "fortnite headshot", "arsenal headshot",
+        "fallen headshot", "mogged", "moan", "mommy asmr", "one", "tung" },
+    default = "never lose",
+    flag = "custom_hitsound_select",
+    callback = function(v)
+        misc.sounds.hit_id = misc.hit_sounds[v] or misc.sounds.hit_id
+    end,
+})
+
+sound_section:Slider({
+    name = "hit sound volume",
+    min = 1,
+    max = 500,
+    default = 100,
+    float = 1,
+    flag = "custom_hitsound_vol",
+    callback = function(v)
+        misc.sounds.hit_volume = v / 100
+    end,
+})
+
+sound_section:Button({
+    name = "test hit sound",
+    callback = function()
+        pcall(function()
+            misc.play_sound(misc.sounds.hit_id, misc.sounds.hit_volume)
+        end)
+    end,
+})
+
+sound_section:Toggle({
+    name = "custom gun sound",
+    default = false,
+    flag = "custom_gunsound_enable",
+    callback = function(v)
+        misc.sounds.gun_enabled = v
+    end,
+})
+
+sound_section:Dropdown({
+    name = "gun sound",
+    content = { "rust ak", "minecraft bow", "fallen pkm", "Scar20", "SSg08", "AWP",
+        "AK47-CS:GO", "G3SG1", "Deagle", "USP-S", "USP", "HK416", "M4A1", "SKS",
+        "SKS-Silenced", "FiveSeven", "AK47-Tarkov" },
+    default = "rust ak",
+    flag = "custom_gunsound_select",
+    callback = function(v)
+        misc.sounds.gun_id = misc.gun_sounds[v] or misc.sounds.gun_id
+    end,
+})
+
+sound_section:Slider({
+    name = "gun sound volume",
+    min = 1,
+    max = 500,
+    default = 100,
+    float = 1,
+    flag = "custom_gunsound_vol",
+    callback = function(v)
+        misc.sounds.gun_volume = v / 100
+    end,
+})
+
+sound_section:Button({
+    name = "test gun sound",
+    callback = function()
+        pcall(function()
+            misc.play_sound(misc.sounds.gun_id, misc.sounds.gun_volume)
+        end)
+    end,
+})
+
+sound_section:Toggle({
+    name = "custom muzzle flash",
+    default = false,
+    flag = "custommuzzleflash",
+    callback = function(v)
+        misc.sounds.muzzle_flash = v
+    end,
+})
+
+sound_section:ColorPicker({
+    name = "muzzle flash color",
+    default = Color3.fromRGB(255, 100, 0),
+    flag = "muzzleflashcolor",
+    callback = function(v)
+        misc.sounds.muzzle_flash_color = v
+    end,
+})
+
+sound_section:Separator("freecam")
+
+local freecam_toggle = sound_section:Toggle({
+    name = "freecam",
+    default = false,
+    flag = "freecam_enabled",
+    callback = function(v)
+        misc.freecam.enabled = v
+    end,
+})
+
+sound_section:Keybind({
+    name = "freecam bind",
+    default = "None",
+    flag = "freecam_bind",
+    callback = function(key, fromsetting)
+        if fromsetting then return end
+        misc.freecam.enabled = not misc.freecam.enabled
+        freecam_toggle:Toggle(misc.freecam.enabled)
+    end,
+})
+
+sound_section:Slider({
+    name = "freecam speed",
+    min = 10,
+    max = 575,
+    default = 50,
+    float = 1,
+    flag = "freecam_speed",
+    callback = function(v)
+        misc.freecam.speed = v
+    end,
+})
+
+sound_section:Toggle({
+    name = "freecam distance",
+    default = true,
+    flag = "freecam_show_distance",
+    callback = function(v)
+        misc.freecam.show_distance = v
     end,
 })
 
