@@ -264,10 +264,19 @@ library.folder = "centhackV2"
 library.extension = "cfg"
 cheat.library = library
 
+-- The library defines a menu key but never binds it, so the menu could not
+-- be closed. The toggle is handled here.
+cheat.utility.track_connection(UserInputService.InputBegan:Connect(function(input, game_processed)
+    if game_processed then return end
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+    if input.KeyCode ~= library.keybind then return end
+    library:Close()
+end))
+
 local window = library:Load({
     name = "CentHackV2",
-    sizex = 560,
-    sizey = 520,
+    sizex = 620,
+    sizey = 690,
     folder = "centhackV2",
     extension = "cfg",
 })
@@ -281,6 +290,11 @@ silent_aim = {
     max_distance = 0,               -- 0 = infinite
     part = "Head",
     random_part = false,
+    fov = false,                    -- only look for a target inside the fov
+    fov_show = false,               -- draw the fov circle
+    fov_size = 100,
+    fov_color = Color3.new(1, 1, 1),
+    fov_transparency = 1,
     target_ai = false,
     target_heli = false,
     wallbang = false,                -- shoot through walls
@@ -400,6 +414,7 @@ esp = {} do
             name = false,
             name_outline = false,
             displayname = false,
+            displayname_outline = false,
             health = false,
             dist = false,
             dist_outline = false,
@@ -417,6 +432,7 @@ esp = {} do
             name_color = { Color3.new(1, 1, 1), 1 },
             name_outline_color = Color3.new(),
             displayname_color = { Color3.new(1, 1, 1), 1 },
+            displayname_outline_color = Color3.new(),
             dist_color = { Color3.new(1, 1, 1), 1 },
             dist_outline_color = Color3.new(),
             weapon_color = { Color3.new(1, 1, 1), 1 },
@@ -426,6 +442,18 @@ esp = {} do
             health_color_bottom = Color3.new(1, 0, 0),
             health_thickness = 2,
             health_glow_size = 5,
+            -- the "visible" variants only use their color when the target is
+            -- actually visible
+            box_outline_vis = false,
+            name_outline_vis = false,
+            displayname_outline_vis = false,
+            dist_outline_vis = false,
+            weapon_outline_vis = false,
+            box_outline_vis_color = { Color3.new(), 1 },
+            name_outline_vis_color = Color3.new(),
+            displayname_outline_vis_color = Color3.new(),
+            dist_outline_vis_color = Color3.new(),
+            weapon_outline_vis_color = Color3.new(),
             chams_fill_color = { Color3.new(1, 1, 1), 0.5 },
             chams_outline_color = { Color3.new(1, 1, 1), 0 },
         },
@@ -536,6 +564,15 @@ esp = {} do
     -- per element drawing
     ------------------------------------------------------------------
 
+    -- the outline color of an element, the "visible" variant wins when the
+    -- target can be seen
+    local function outline_color(settings, key, vis_key, entry)
+        if settings[vis_key] and entry.is_vis then
+            return settings[vis_key .. "_color"][1], settings[vis_key .. "_color"][2]
+        end
+        return settings[key][1], settings[key][2]
+    end
+
     local function draw_box(entry, corners, settings)
         local obj = entry.obj
         if settings.box or settings.box_fill or settings.box_outline then
@@ -550,10 +587,15 @@ esp = {} do
             obj.box_outline.Position = pos - _Vector2new(1, 1)
             obj.box_outline.Size = size + _Vector2new(2, 2)
             obj.box_outline.Visible = settings.box_outline
-            obj.box_outline.Color = entry.cheater
-                and settings.high_kd_outline_color
-                or settings.box_outline_color[1]
-            obj.box_outline.Transparency = entry.cheater and 1 or settings.box_outline_color[2]
+            if entry.cheater then
+                obj.box_outline.Color = settings.high_kd_outline_color
+                obj.box_outline.Transparency = 1
+            else
+                local color, transparency = outline_color(
+                    settings, "box_outline_color", "box_outline_vis", entry)
+                obj.box_outline.Color = color
+                obj.box_outline.Transparency = transparency
+            end
         else
             obj.box.Visible = false
             obj.box_fill.Visible = false
@@ -567,12 +609,20 @@ esp = {} do
         if settings.name then
             obj.name.Position = _Vector2new(top.X + 1, top.Y - 16)
             obj.name.Visible = true
+            obj.name.Outline = settings.name_outline
+            local color = settings.name_outline_vis and entry.is_vis
+                and settings.name_outline_vis_color or settings.name_outline_color
+            obj.name.OutlineColor = color
         else
             obj.name.Visible = false
         end
         if settings.displayname then
             obj.displayname.Position = _Vector2new(top.X + 1, top.Y - 30)
             obj.displayname.Visible = true
+            obj.displayname.Outline = settings.displayname_outline
+            local color = settings.displayname_outline_vis and entry.is_vis
+                and settings.displayname_outline_vis_color or settings.displayname_outline_color
+            obj.displayname.OutlineColor = color
         else
             obj.displayname.Visible = false
         end
@@ -584,6 +634,10 @@ esp = {} do
             obj.dist.Text = string.format("[%d]", distance)
             obj.dist.Position = _Vector2new(corners.bottomRight.X + 4, corners.topLeft.Y - 6)
             obj.dist.Visible = true
+            obj.dist.Outline = settings.dist_outline
+            local color = settings.dist_outline_vis and entry.is_vis
+                and settings.dist_outline_vis_color or settings.dist_outline_color
+            obj.dist.OutlineColor = color
         else
             obj.dist.Visible = false
         end
@@ -595,6 +649,10 @@ esp = {} do
             obj.weapon.Text = weapon
             obj.weapon.Position = _Vector2new(corners.bottomRight.X + 4, corners.bottomRight.Y + 2)
             obj.weapon.Visible = true
+            obj.weapon.Outline = settings.weapon_outline
+            local color = settings.weapon_outline_vis and entry.is_vis
+                and settings.weapon_outline_vis_color or settings.weapon_outline_color
+            obj.weapon.OutlineColor = color
         else
             obj.weapon.Visible = false
         end
@@ -770,6 +828,8 @@ esp = {} do
             last_gun_time = 0,
             last_health = nil,
             cheater = false,
+            is_vis = false,
+            last_vis_check = 0,
         }
 
         local settings = esp.settings.enemy
@@ -786,7 +846,7 @@ esp = {} do
                 local text = obj[key]
                 text.Size = main_settings.textSize
                 text.Font = main_settings.textFont
-                text.Outline = true
+                text.Outline = false
                 text.OutlineColor = Color3.new(0, 0, 0)
                 text.Color = Color3.new(1, 1, 1)
                 text.Transparency = 1
@@ -889,6 +949,20 @@ esp = {} do
                     end
                 end
                 entry.skel_parts = skel
+            end
+
+            -- the visibility is cached, the "visible only" colours need it
+            if settings.box_outline_vis or settings.name_outline_vis
+                or settings.displayname_outline_vis or settings.dist_outline_vis
+                or settings.weapon_outline_vis
+            then
+                if os.clock() - (entry.last_vis_check or 0) >= 0.15 then
+                    entry.last_vis_check = os.clock()
+                    entry.is_vis = cheat.utility.is_visible(
+                        Camera.CFrame, character, head) or false
+                end
+            else
+                entry.is_vis = false
             end
 
             -- a high k/d player is marked with a red outline
@@ -1548,6 +1622,32 @@ local function get_closest_target(usefov, fov_size, aimpart, npc, is_rage, rage_
 end
 
 ----------------------------------------------------------------------
+-- FOV CIRCLE
+----------------------------------------------------------------------
+-- The circle the target has to be in, it also limits the targeting.
+
+local fov_circle = cheat.utility.new_drawing("Circle", {
+    Visible = false,
+    Thickness = 1,
+    Color = Color3.new(1, 1, 1),
+    Transparency = 1,
+    ZIndex = 0,
+    Filled = false,
+})
+
+cheat.utility.new_renderstepped(function()
+    if not (silent_aim.fov_show and silent_aim.fov) then
+        fov_circle.Visible = false
+        return
+    end
+    fov_circle.Position = _Vector2new(Mouse.X, Mouse.Y)
+    fov_circle.Radius = silent_aim.fov_size
+    fov_circle.Color = silent_aim.fov_color
+    fov_circle.Transparency = silent_aim.fov_transparency
+    fov_circle.Visible = true
+end)
+
+----------------------------------------------------------------------
 -- HITMARKERS
 ----------------------------------------------------------------------
 
@@ -2080,8 +2180,13 @@ cheat.utility.new_heartbeat(LPH_NO_VIRTUALIZE(function(delta)
                 false, false, nil, nil
             )
         else
+            -- a random part picks a different bone every scan
+            if silent_aim.random_part then
+                local parts = { "Head", "UpperTorso", "HumanoidRootPart", "LowerTorso" }
+                silent_aim.part = parts[math.random(#parts)]
+            end
             silent_aim.target_part, silent_aim.is_npc = get_closest_target(
-                false, nil, silent_aim.part, silent_aim.target_ai,
+                silent_aim.fov, silent_aim.fov_size, silent_aim.part, silent_aim.target_ai,
                 false, 0, silent_aim.target_heli,
                 false, false, nil, silent_aim.max_distance
             )
@@ -3365,6 +3470,82 @@ local _silentaim_picker = main_section:Keybind({
     end,
 })
 
+main_section:Dropdown({
+    name = "aim part",
+    content = { "Head", "UpperTorso", "HumanoidRootPart", "LowerTorso", "LeftUpperArm", "RightUpperArm" },
+    default = "Head",
+    flag = "silentaim_part",
+    callback = function(v)
+        silent_aim.part = v
+    end,
+})
+
+main_section:Toggle({
+    name = "random part",
+    default = false,
+    flag = "silentaim_random_part",
+    callback = function(v)
+        silent_aim.random_part = v
+    end,
+})
+
+main_section:Toggle({
+    name = "target ai",
+    default = false,
+    flag = "silentaim_target_ai",
+    callback = function(v)
+        silent_aim.target_ai = v
+    end,
+})
+
+main_section:Toggle({
+    name = "target heli",
+    default = false,
+    flag = "silentaim_target_heli",
+    callback = function(v)
+        silent_aim.target_heli = v
+    end,
+})
+
+main_section:Toggle({
+    name = "fov circle",
+    default = false,
+    flag = "silentaim_fov",
+    callback = function(v)
+        silent_aim.fov = v
+    end,
+})
+
+main_section:Slider({
+    name = "fov size",
+    min = 10,
+    max = 600,
+    default = 100,
+    float = 1,
+    flag = "silentaim_fov_size",
+    callback = function(v)
+        silent_aim.fov_size = v
+    end,
+})
+
+main_section:Toggle({
+    name = "show fov",
+    default = false,
+    flag = "silentaim_fov_show",
+    callback = function(v)
+        silent_aim.fov_show = v
+    end,
+})
+
+main_section:ColorPicker({
+    name = "fov color",
+    default = Color3.new(1, 1, 1),
+    flag = "silentaim_fov_color",
+    callback = function(v)
+        silent_aim.fov_color = v
+    end,
+})
+
 main_section:Slider({
     name = "distance",
     min = 0,
@@ -3733,31 +3914,35 @@ esp_section:Toggle({
     end,
 })
 
+-- BOX -----------------------------------------------------------------------
+esp_section:Separator("box")
+
 esp_section:Toggle({
     name = "box",
     default = false,
     flag = "esp_box",
-    callback = function(v)
-        es.box = v
-    end,
+    callback = function(v) es.box = v end,
 })
 
 esp_section:Toggle({
     name = "box fill",
     default = false,
     flag = "esp_box_fill",
-    callback = function(v)
-        es.box_fill = v
-    end,
+    callback = function(v) es.box_fill = v end,
 })
 
 esp_section:Toggle({
     name = "box outline",
     default = false,
     flag = "esp_box_outline",
-    callback = function(v)
-        es.box_outline = v
-    end,
+    callback = function(v) es.box_outline = v end,
+})
+
+esp_section:Toggle({
+    name = "box outline (visible)",
+    default = false,
+    flag = "esp_box_outline_vis",
+    callback = function(v) es.box_outline_vis = v end,
 })
 
 esp_section:ColorPicker({
@@ -3770,13 +3955,97 @@ esp_section:ColorPicker({
     end,
 })
 
+esp_section:Slider({
+    name = "box transparency",
+    min = 0,
+    max = 100,
+    default = 0,
+    float = 1,
+    flag = "esp_box_transparency",
+    callback = function(v)
+        es.box_color[2] = 1 - (v / 100)
+        esp.refresh()
+    end,
+})
+
+esp_section:ColorPicker({
+    name = "box fill color",
+    default = Color3.new(1, 0, 0),
+    flag = "esp_box_fill_color",
+    callback = function(v)
+        es.box_fill_color[1] = v
+        esp.refresh()
+    end,
+})
+
+esp_section:Slider({
+    name = "box fill transparency",
+    min = 0,
+    max = 100,
+    default = 50,
+    float = 1,
+    flag = "esp_box_fill_transparency",
+    callback = function(v)
+        es.box_fill_color[2] = 1 - (v / 100)
+        esp.refresh()
+    end,
+})
+
+esp_section:ColorPicker({
+    name = "box outline color",
+    default = Color3.new(),
+    flag = "esp_box_outline_color",
+    callback = function(v)
+        es.box_outline_color[1] = v
+        esp.refresh()
+    end,
+})
+
+esp_section:Slider({
+    name = "box outline transparency",
+    min = 0,
+    max = 100,
+    default = 0,
+    float = 1,
+    flag = "esp_box_outline_transparency",
+    callback = function(v)
+        es.box_outline_color[2] = 1 - (v / 100)
+        esp.refresh()
+    end,
+})
+
+esp_section:ColorPicker({
+    name = "visible box outline color",
+    default = Color3.new(),
+    flag = "esp_box_outline_vis_color",
+    callback = function(v)
+        es.box_outline_vis_color[1] = v
+        esp.refresh()
+    end,
+})
+
+-- TEXT ----------------------------------------------------------------------
+esp_section:Separator("text")
+
 esp_section:Toggle({
     name = "name",
     default = false,
     flag = "esp_name",
-    callback = function(v)
-        es.name = v
-    end,
+    callback = function(v) es.name = v end,
+})
+
+esp_section:Toggle({
+    name = "name outline",
+    default = false,
+    flag = "esp_name_outline",
+    callback = function(v) es.name_outline = v end,
+})
+
+esp_section:Toggle({
+    name = "name outline (visible)",
+    default = false,
+    flag = "esp_name_outline_vis",
+    callback = function(v) es.name_outline_vis = v end,
 })
 
 esp_section:ColorPicker({
@@ -3789,39 +4058,100 @@ esp_section:ColorPicker({
     end,
 })
 
+esp_section:Slider({
+    name = "name transparency",
+    min = 0,
+    max = 100,
+    default = 0,
+    float = 1,
+    flag = "esp_name_transparency",
+    callback = function(v)
+        es.name_color[2] = 1 - (v / 100)
+        esp.refresh()
+    end,
+})
+
+esp_section:ColorPicker({
+    name = "name outline color",
+    default = Color3.new(),
+    flag = "esp_name_outline_color",
+    callback = function(v)
+        es.name_outline_color = v
+        esp.refresh()
+    end,
+})
+
+esp_section:ColorPicker({
+    name = "visible name outline color",
+    default = Color3.new(),
+    flag = "esp_name_outline_vis_color",
+    callback = function(v)
+        es.name_outline_vis_color = v
+        esp.refresh()
+    end,
+})
+
 esp_section:Toggle({
     name = "display name",
     default = false,
     flag = "esp_displayname",
-    callback = function(v)
-        es.displayname = v
-    end,
+    callback = function(v) es.displayname = v end,
 })
 
 esp_section:Toggle({
-    name = "health",
+    name = "display name outline",
     default = false,
-    flag = "esp_health",
+    flag = "esp_displayname_outline",
+    callback = function(v) es.displayname_outline = v end,
+})
+
+esp_section:Toggle({
+    name = "display name outline (visible)",
+    default = false,
+    flag = "esp_displayname_outline_vis",
+    callback = function(v) es.displayname_outline_vis = v end,
+})
+
+esp_section:ColorPicker({
+    name = "display name color",
+    default = Color3.new(1, 1, 1),
+    flag = "esp_displayname_color",
     callback = function(v)
-        es.health = v
+        es.displayname_color[1] = v
+        esp.refresh()
+    end,
+})
+
+esp_section:Slider({
+    name = "display name transparency",
+    min = 0,
+    max = 100,
+    default = 0,
+    float = 1,
+    flag = "esp_displayname_transparency",
+    callback = function(v)
+        es.displayname_color[2] = 1 - (v / 100)
+        esp.refresh()
     end,
 })
 
 esp_section:ColorPicker({
-    name = "health color top",
-    default = Color3.new(0, 1, 0),
-    flag = "esp_health_top",
+    name = "display name outline color",
+    default = Color3.new(),
+    flag = "esp_displayname_outline_color",
     callback = function(v)
-        es.health_color_top = v
+        es.displayname_outline_color = v
+        esp.refresh()
     end,
 })
 
 esp_section:ColorPicker({
-    name = "health color bottom",
-    default = Color3.new(1, 0, 0),
-    flag = "esp_health_bottom",
+    name = "visible display name outline color",
+    default = Color3.new(),
+    flag = "esp_displayname_outline_vis_color",
     callback = function(v)
-        es.health_color_bottom = v
+        es.displayname_outline_vis_color = v
+        esp.refresh()
     end,
 })
 
@@ -3829,8 +4159,63 @@ esp_section:Toggle({
     name = "distance",
     default = false,
     flag = "esp_distance",
+    callback = function(v) es.dist = v end,
+})
+
+esp_section:Toggle({
+    name = "distance outline",
+    default = false,
+    flag = "esp_distance_outline",
+    callback = function(v) es.dist_outline = v end,
+})
+
+esp_section:Toggle({
+    name = "distance outline (visible)",
+    default = false,
+    flag = "esp_distance_outline_vis",
+    callback = function(v) es.dist_outline_vis = v end,
+})
+
+esp_section:ColorPicker({
+    name = "distance color",
+    default = Color3.new(1, 1, 1),
+    flag = "esp_distance_color",
     callback = function(v)
-        es.dist = v
+        es.dist_color[1] = v
+        esp.refresh()
+    end,
+})
+
+esp_section:Slider({
+    name = "distance transparency",
+    min = 0,
+    max = 100,
+    default = 0,
+    float = 1,
+    flag = "esp_distance_transparency",
+    callback = function(v)
+        es.dist_color[2] = 1 - (v / 100)
+        esp.refresh()
+    end,
+})
+
+esp_section:ColorPicker({
+    name = "distance outline color",
+    default = Color3.new(),
+    flag = "esp_distance_outline_color",
+    callback = function(v)
+        es.dist_outline_color = v
+        esp.refresh()
+    end,
+})
+
+esp_section:ColorPicker({
+    name = "visible distance outline color",
+    default = Color3.new(),
+    flag = "esp_distance_outline_vis_color",
+    callback = function(v)
+        es.dist_outline_vis_color = v
+        esp.refresh()
     end,
 })
 
@@ -3838,27 +4223,164 @@ esp_section:Toggle({
     name = "weapon",
     default = false,
     flag = "esp_weapon",
+    callback = function(v) es.weapon = v end,
+})
+
+esp_section:Toggle({
+    name = "weapon outline",
+    default = false,
+    flag = "esp_weapon_outline",
+    callback = function(v) es.weapon_outline = v end,
+})
+
+esp_section:Toggle({
+    name = "weapon outline (visible)",
+    default = false,
+    flag = "esp_weapon_outline_vis",
+    callback = function(v) es.weapon_outline_vis = v end,
+})
+
+esp_section:ColorPicker({
+    name = "weapon color",
+    default = Color3.new(1, 1, 1),
+    flag = "esp_weapon_color",
     callback = function(v)
-        es.weapon = v
+        es.weapon_color[1] = v
+        esp.refresh()
     end,
 })
+
+esp_section:Slider({
+    name = "weapon transparency",
+    min = 0,
+    max = 100,
+    default = 0,
+    float = 1,
+    flag = "esp_weapon_transparency",
+    callback = function(v)
+        es.weapon_color[2] = 1 - (v / 100)
+        esp.refresh()
+    end,
+})
+
+esp_section:ColorPicker({
+    name = "weapon outline color",
+    default = Color3.new(),
+    flag = "esp_weapon_outline_color",
+    callback = function(v)
+        es.weapon_outline_color = v
+        esp.refresh()
+    end,
+})
+
+esp_section:ColorPicker({
+    name = "visible weapon outline color",
+    default = Color3.new(),
+    flag = "esp_weapon_outline_vis_color",
+    callback = function(v)
+        es.weapon_outline_vis_color = v
+        esp.refresh()
+    end,
+})
+
+-- HEALTH --------------------------------------------------------------------
+esp_section:Separator("health")
+
+esp_section:Toggle({
+    name = "health",
+    default = false,
+    flag = "esp_health",
+    callback = function(v) es.health = v end,
+})
+
+esp_section:ColorPicker({
+    name = "health color top",
+    default = Color3.new(0, 1, 0),
+    flag = "esp_health_top",
+    callback = function(v) es.health_color_top = v end,
+})
+
+esp_section:ColorPicker({
+    name = "health color bottom",
+    default = Color3.new(1, 0, 0),
+    flag = "esp_health_bottom",
+    callback = function(v) es.health_color_bottom = v end,
+})
+
+esp_section:Slider({
+    name = "health bar thickness",
+    min = 1,
+    max = 10,
+    default = 2,
+    float = 1,
+    flag = "esp_health_thickness",
+    callback = function(v)
+        es.health_thickness = v
+        esp.refresh()
+    end,
+})
+
+esp_section:Slider({
+    name = "health glow size",
+    min = 1,
+    max = 20,
+    default = 5,
+    float = 1,
+    flag = "esp_health_glow_size",
+    callback = function(v)
+        es.health_glow_size = v
+        esp.refresh()
+    end,
+})
+
+-- SKELETON ------------------------------------------------------------------
+esp_section:Separator("skeleton")
 
 esp_section:Toggle({
     name = "skeleton",
     default = false,
     flag = "esp_skeleton",
+    callback = function(v) es.skeleton = v end,
+})
+
+esp_section:ColorPicker({
+    name = "skeleton color",
+    default = Color3.new(1, 1, 1),
+    flag = "esp_skeleton_color",
     callback = function(v)
-        es.skeleton = v
+        es.skeleton_color[1] = v
+        esp.refresh()
     end,
 })
+
+esp_section:Slider({
+    name = "skeleton transparency",
+    min = 0,
+    max = 100,
+    default = 0,
+    float = 1,
+    flag = "esp_skeleton_transparency",
+    callback = function(v)
+        es.skeleton_color[2] = 1 - (v / 100)
+        esp.refresh()
+    end,
+})
+
+-- CHAMS ---------------------------------------------------------------------
+esp_section:Separator("chams")
 
 esp_section:Toggle({
     name = "chams",
     default = false,
     flag = "esp_chams",
-    callback = function(v)
-        es.chams = v
-    end,
+    callback = function(v) es.chams = v end,
+})
+
+esp_section:Toggle({
+    name = "chams visible only",
+    default = false,
+    flag = "esp_chams_visible_only",
+    callback = function(v) es.chams_visible_only = v end,
 })
 
 esp_section:Dropdown({
@@ -3866,15 +4388,97 @@ esp_section:Dropdown({
     content = { "Neon", "ForceField", "Glass", "SmoothPlastic" },
     default = "Neon",
     flag = "esp_chams_material",
+    callback = function(v) es.chams_material = v end,
+})
+
+esp_section:ColorPicker({
+    name = "chams color",
+    default = Color3.new(1, 1, 1),
+    flag = "esp_chams_fill_color",
     callback = function(v)
-        es.chams_material = v
+        es.chams_fill_color[1] = v
+        esp.refresh()
     end,
 })
 
--- corpse esp
-local corpse = esp.settings.corpse
+esp_section:Slider({
+    name = "chams transparency",
+    min = 0,
+    max = 100,
+    default = 50,
+    float = 1,
+    flag = "esp_chams_transparency",
+    callback = function(v)
+        es.chams_fill_color[2] = v / 100
+        esp.refresh()
+    end,
+})
 
+esp_section:ColorPicker({
+    name = "chams outline color",
+    default = Color3.new(1, 1, 1),
+    flag = "esp_chams_outline_color",
+    callback = function(v)
+        es.chams_outline_color[1] = v
+        esp.refresh()
+    end,
+})
+
+-- MISC ----------------------------------------------------------------------
+esp_section:Separator("misc")
+
+esp_section:Toggle({
+    name = "infinite range",
+    default = false,
+    flag = "esp_infinite_range",
+    callback = function(v)
+        esp.main_settings.infiniterange = v
+        esp.refresh()
+    end,
+})
+
+esp_section:Slider({
+    name = "esp font size",
+    min = 1,
+    max = 30,
+    default = 13,
+    float = 1,
+    flag = "esp_font_size",
+    callback = function(v)
+        esp.main_settings.textSize = v
+        esp.refresh()
+    end,
+})
+
+esp_section:Dropdown({
+    name = "esp font",
+    content = { "Monospace", "Code", "Plex", "UI", "System" },
+    default = "Monospace",
+    flag = "esp_font",
+    callback = function(v)
+        esp.main_settings.textFont = Drawing.Fonts[v] or Drawing.Fonts.Monospace
+        esp.refresh()
+    end,
+})
+
+esp_section:Toggle({
+    name = "highlight high kd (>5)",
+    default = false,
+    flag = "esp_high_kd_marker",
+    callback = function(v) es.high_kd_marker = v end,
+})
+
+esp_section:ColorPicker({
+    name = "cheater outline color",
+    default = Color3.fromRGB(255, 0, 0),
+    flag = "esp_high_kd_color",
+    callback = function(v) es.high_kd_outline_color = v end,
+})
+
+-- CORPSE ESP ----------------------------------------------------------------
 esp_section:Separator("corpse esp")
+
+local corpse = esp.settings.corpse
 
 esp_section:Toggle({
     name = "enable corpse esp",
@@ -3909,6 +4513,24 @@ esp_section:ColorPicker({
     flag = "corpse_esp_color",
     callback = function(v)
         corpse.color = v
+    end,
+})
+
+esp_section:Toggle({
+    name = "corpse outline",
+    default = false,
+    flag = "corpse_esp_outline",
+    callback = function(v)
+        corpse.outline = v
+    end,
+})
+
+esp_section:ColorPicker({
+    name = "corpse outline color",
+    default = Color3.new(),
+    flag = "corpse_esp_outline_color",
+    callback = function(v)
+        corpse.outline_color = v
     end,
 })
 
