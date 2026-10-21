@@ -898,10 +898,12 @@ local drawing = {} do
                         table.insert(listchildren[v], obj)
                         table.insert(listindexes[v], listcontents[v] + (#listchildren[v] == 1 and 0 or objpaddings[v]))
 
-                        local newpos = Vector2.new(0, listcontents[v] + (#listchildren[v] == 1 and 0 or objpaddings[v]))
+                        -- the child is placed at the position of the list, the
+                        -- same way the list layout itself does it
+                        local newpos = mtobjs[v].Position + Vector2.new(0, listcontents[v] + (#listchildren[v] == 1 and 0 or objpaddings[v]))
 
                         if scrollobjs[v] then
-                            newpos = Vector2.new(0, listcontents[v] + (#listchildren[v] == 1 and 0 or objpaddings[v]) + scrollpositions[v])
+                            newpos = mtobjs[v].Position + Vector2.new(0, listcontents[v] + (#listchildren[v] == 1 and 0 or objpaddings[v]) + scrollpositions[v])
                         end
 
                         listadds[v][obj] = obj.Size.Y + (#listchildren[v] == 1 and 0 or objpaddings[v])
