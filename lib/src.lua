@@ -2814,13 +2814,19 @@ function library:Relayout()
             obj.Size = size
         end
 
+        -- The position of an element is relative to its parent, the absolute
+        -- position is the position of the parent plus the offset. An element
+        -- without a position sits at the origin of its parent.
         local pos_udim = udim2posobjs[obj]
         local pos
-        if pos_udim then
-            pos = udim2tovector2(pos_udim, parent_obj and parent_obj.Size or viewport)
-            if parent_obj then
-                pos = parent_obj.Position + pos
+        if parent_obj then
+            local offset = Vector2.new(0, 0)
+            if pos_udim then
+                offset = udim2tovector2(pos_udim, parent_obj.Size)
             end
+            pos = parent_obj.Position + offset
+        elseif pos_udim then
+            pos = udim2tovector2(pos_udim, viewport)
         end
 
         local children = listchildren[mt]
@@ -2858,21 +2864,50 @@ function library:Relayout()
             end
         end
 
-        -- the children that are outside of the visible area are hidden
-        if custompropertygets[mtobjs[mt]]("ClipsDescendants") then
-            for _, child in pairs(listchildren[mt] or {}) do
-                local co = mtobjs[child] or child
-                local visible = istouching(
+        -- The visibility of every child is restored, the library hides the
+        -- elements that are outside of their parent while the layout is
+        -- still wrong.
+        for _, child in pairs(objchildren[mt] or {}) do
+            local co = mtobjs[child] or child
+            -- the library hides the elements that were outside of their
+            -- parent while the menu was built, they are shown again here
+            local visible = true
+            if custompropertygets[mtobjs[mt]]("ClipsDescendants") then
+                if not istouching(
                     co.Position, co.Size,
-                    mtobjs[mt].Position, mtobjs[mt].Size) and objvisibles[child] or false
-                co.Visible = visible
-                childrenvisupdates[objmts[child]](objmts[child], visible)
+                    mtobjs[mt].Position, mtobjs[mt].Size) then
+                    visible = false
+                end
             end
+            co.Visible = visible
+            childrenvisupdates[objmts[child]](objmts[child], visible)
         end
     end
 
     if self.holder then
         place(self.holder, nil)
+    end
+
+    -- Everything is shown again, the library hides the elements that were
+    -- outside of their parent while the menu was built. The elements that
+    -- really are outside of a list with clipping are hidden afterwards.
+    for _, children in pairs(objchildren) do
+        for _, child in pairs(children) do
+            local co = mtobjs[child] or child
+            co.Visible = true
+        end
+    end
+
+    for mt, children in pairs(listchildren) do
+        local parent = mtobjs[mt]
+        if parent and custompropertygets[parent]("ClipsDescendants") then
+            for _, child in pairs(children) do
+                local co = mtobjs[child] or child
+                if not istouching(co.Position, co.Size, parent.Position, parent.Size) then
+                    co.Visible = false
+                end
+            end
+        end
     end
 end
 
