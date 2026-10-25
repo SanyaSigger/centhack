@@ -347,6 +347,14 @@ local function LoadLibraryFile(name, fallback)
     if not (ok and source and #source > 0) then
         source = game:HttpGet(FALLBACK_REPO .. (fallback or name))
     end
+
+    -- Patch the LinoriaLib __namecall so addon methods (AddKeyPicker, etc.)
+    -- receive the correct `self` argument. The upstream version drops the
+    -- Table argument: `Funcs[Key](...)` → `Funcs[Key](Table, ...)`.
+    if name == 'Library.lua' then
+        source = source:gsub('return Funcs%[Key%]%(...%);', 'return Funcs[Key](Table, ...);')
+    end
+
     local chunk, err = loadstring(source, name)
     if not chunk then
         error(string.format('Failed to load %s from %s: %s', name, REPO, tostring(err)))
@@ -503,7 +511,20 @@ end
 
 function BOX_METHODS.AddToggle(self, idx, info)
     local raw = rawget(self, "_raw")
-    return raw:AddToggle(idx, info)
+    local toggle = raw:AddToggle(idx, info)
+    -- Ensure AddKeyPicker works by binding it directly to the toggle instance.
+    -- The library's __index metatable should find it, but this guarantees it.
+    if not toggle.AddKeyPicker then
+        local lib_MT = getmetatable(toggle)
+        if lib_MT and lib_MT.__index then
+            local index = lib_MT.__index
+            local addKP = (type(index) == "function") and index(toggle, "AddKeyPicker") or index.AddKeyPicker
+            if addKP then
+                toggle.AddKeyPicker = function(t, ...) return addKP(t, ...) end
+            end
+        end
+    end
+    return toggle
 end
 
 function BOX_METHODS.AddDependencyBox(self)
