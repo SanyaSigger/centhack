@@ -764,11 +764,11 @@ end
 function BOX_METHODS.AddToggle(self, idx, info)
     local raw = rawget(self, "_raw")
     local toggle = raw:AddToggle(idx, info)
-    -- Patch the library's addon table once so `Toggle:AddKeyPicker` uses the
-    -- Linoria semantics implemented above.
-    local mt = getmetatable(toggle)
-    if mt and mt.__index and mt.__index.AddKeyPicker ~= compat_add_key_picker then
-        mt.__index.AddKeyPicker = compat_add_key_picker
+    -- Add AddKeyPicker directly to the toggle instance so it bypasses the
+    -- library's __namecall metamethod which would otherwise call the original
+    -- Funcs.AddKeyPicker instead of our compat implementation.
+    toggle.AddKeyPicker = function(_, ...)
+        return compat_add_key_picker(toggle, ...)
     end
     return toggle
 end
