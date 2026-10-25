@@ -404,8 +404,7 @@ local TOGGLE_COLORS = {
     item_finder_enabled = RED,
 }
 
-local UI_KEYPICKERS = {}     -- every key picker that was created
-local UI_PICKING = nil       -- key picker currently waiting for a key press
+-- Key pickers are now handled natively by Library.lua AddKeyPicker
 
 -- LinoriaLib names the accent color "AccentColor", some forks use
 -- "AccentColor1" - both are supported.
@@ -471,265 +470,6 @@ cheat.Library = setmetatable({}, {
     end,
 })
 
-----------------------------------------------------------------------
--- KEY PICKER (Linoria semantics)
-----------------------------------------------------------------------
-
-local function key_from_input(input)
-    if input.UserInputType == Enum.UserInputType.Keyboard then
-        return input.KeyCode.Name
-    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
-        return "MB1"
-    elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-        return "MB2"
-    end
-    return nil
-end
-
-local function key_picker_state(picker)
-    if picker.Mode == "Always" then
-        return true
-    elseif picker.Mode == "Hold" then
-        if picker.Value == "None" then return false end
-        if picker.Value == "MB1" then
-            return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
-        elseif picker.Value == "MB2" then
-            return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
-        end
-        local ok, code = pcall(function() return Enum.KeyCode[picker.Value] end)
-        if not ok or not code then return false end
-        return UserInputService:IsKeyDown(code)
-    end
-    return picker.Toggled == true
-end
-
-local function key_picker_update(picker)
-    if picker.DisplayLabel then
-        picker.DisplayLabel.Text = picker.Value
-    end
-    if picker.ListLabel then
-        picker.ListLabel.Text = string.format("[%s] %s (%s)", picker.Value, picker.Text, picker.Mode or "Toggle")
-        picker.ListLabel.Visible = not picker.NoUI
-    end
-    if picker.ListLabel and Library.RegistryMap and Library.RegistryMap[picker.ListLabel] then
-        local active = key_picker_state(picker)
-        picker.ListLabel.TextColor3 = active and ACCENT_COLOR or Library.FontColor
-        Library.RegistryMap[picker.ListLabel].Properties.TextColor3 = active and ACCENT_NAME or 'FontColor'
-    end
-end
-
-local function key_picker_do_click(picker)
-    if picker.ParentType == "Toggle" and picker.SyncToggleState and picker.Parent and picker.Parent.SetValue then
-        picker.Parent:SetValue(not picker.Parent.Value)
-    end
-    if picker.Callback then
-        pcall(picker.Callback, picker.Toggled)
-    end
-end
-
-local function compat_add_key_picker(self, idx, info)
-    info = info or {}
-    local parent = self
-    local parent_label = rawget(self, "TextLabel")
-    local container = rawget(self, "Container")
-
-    -- Unwrap boxed groupboxes: the wrapper stores the real object in _raw
-    if not parent_label and not container then
-        local raw = rawget(self, "_raw")
-        if raw then
-            parent_label = raw.TextLabel
-            container = raw.Container
-        end
-    end
-
-    local picker = {
-        Value = info.Default or "None",
-        Toggled = false,
-        Mode = info.Mode or "Toggle",
-        Type = "KeyPicker",
-        Callback = info.Callback or function() end,
-        ChangedCallback = info.ChangedCallback or function() end,
-        SyncToggleState = info.SyncToggleState or false,
-        Text = info.Text or "Keybind",
-        NoUI = info.NoUI or false,
-        ParentType = (type(parent) == "table" and parent.Type) or "Groupbox",
-        Parent = parent,
-    }
-    if picker.SyncToggleState then
-        picker.Mode = "Toggle"
-    end
-
-    local display
-    if parent_label then
-        -- Render the picker inside the toggle row, exactly like Linoria does.
-        local pick_outer = Library:Create("Frame", {
-            BackgroundColor3 = Color3.new(0, 0, 0),
-            BorderSizePixel = 0,
-            Size = UDim2.new(0, 30, 0, 15),
-            ZIndex = 6,
-            Parent = parent_label,
-        })
-        local pick_inner = Library:Create("Frame", {
-            BackgroundColor3 = Library.BackgroundColor,
-            BorderColor3 = Library.OutlineColor,
-            Size = UDim2.new(1, 0, 1, 0),
-            ZIndex = 7,
-            Parent = pick_outer,
-        })
-        Library:AddToRegistry(pick_inner, {
-            BackgroundColor3 = 'BackgroundColor';
-            BorderColor3 = 'OutlineColor';
-        })
-        display = Library:CreateLabel({
-            Size = UDim2.new(1, 0, 1, 0),
-            TextSize = 13,
-            Text = picker.Value,
-            ZIndex = 8,
-            Parent = pick_inner,
-        })
-        picker.PickOuter = pick_outer
-    elseif container then
-        -- Standalone row inside a groupbox.
-        local pick_outer = Library:Create("Frame", {
-            BackgroundColor3 = Color3.new(0, 0, 0),
-            BorderSizePixel = 0,
-            Size = UDim2.new(1, -4, 0, 15),
-            ZIndex = 5,
-            Parent = container,
-        })
-        local pick_inner = Library:Create("Frame", {
-            BackgroundColor3 = Library.BackgroundColor,
-            BorderColor3 = Library.OutlineColor,
-            Size = UDim2.new(1, 0, 1, 0),
-            ZIndex = 6,
-            Parent = pick_outer,
-        })
-        Library:AddToRegistry(pick_inner, {
-            BackgroundColor3 = 'BackgroundColor';
-            BorderColor3 = 'OutlineColor';
-        })
-        display = Library:CreateLabel({
-            Size = UDim2.new(1, 0, 1, 0),
-            TextSize = 13,
-            Text = picker.Text .. "  [" .. picker.Value .. "]",
-            ZIndex = 7,
-            Parent = pick_inner,
-        })
-        picker.PickOuter = pick_outer
-    end
-
-    picker.DisplayLabel = display
-
-    -- Keybind list entry (when the parent is a toggle/label or a groupbox).
-    if not picker.NoUI and Library.KeybindContainer and (parent_label or container) then
-        local list_label = Library:CreateLabel({
-            Size = UDim2.new(1, 0, 0, 15),
-            TextSize = 13,
-            Text = string.format("[%s] %s (%s)", picker.Value, picker.Text, picker.Mode),
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 100,
-            Parent = Library.KeybindContainer,
-        }, true)
-        Library:AddToRegistry(list_label, { TextColor3 = 'FontColor' })
-        picker.ListLabel = list_label
-    end
-
-    function picker:Update()
-        key_picker_update(picker)
-    end
-
-    function picker:GetState()
-        return key_picker_state(picker)
-    end
-
-    function picker:DoClick()
-        key_picker_do_click(picker)
-    end
-
-    function picker:SetValue(value)
-        picker.Value = value
-        picker:Update()
-    end
-
-    function picker:Adjust(mode)
-        picker.Mode = mode
-        picker:Update()
-    end
-
-    function picker:OnChanged(callback)
-        picker.Changed = callback
-        if callback then callback(picker.Value) end
-    end
-
-    -- Left click: pick a key. Right click: cycle the activation mode.
-    if picker.PickOuter then
-        picker.PickOuter.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                UI_PICKING = picker
-                if picker.DisplayLabel then
-                    picker.DisplayLabel.Text = "..."
-                end
-            elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-                local order = { "Toggle", "Hold", "Always" }
-                local index = 1
-                for i, mode in ipairs(order) do
-                    if mode == picker.Mode then index = i end
-                end
-                picker.Mode = order[(index % #order) + 1]
-                picker:Update()
-            end
-        end)
-    end
-
-    table.insert(UI_KEYPICKERS, picker)
-    Options[idx] = picker
-    picker:Update()
-    return picker
-end
-
--- One global handler drives every key picker.
-do
-    local function on_input_began(input)
-        if UI_PICKING then
-            local picker = UI_PICKING
-            UI_PICKING = nil
-            local key = key_from_input(input)
-            if key then
-                picker.Value = key
-                picker.Toggled = false
-                picker:Update()
-                if picker.ChangedCallback then
-                    pcall(picker.ChangedCallback, input.KeyCode or input.UserInputType)
-                end
-                if picker.Changed then
-                    pcall(picker.Changed, input.KeyCode or input.UserInputType)
-                end
-            else
-                picker:Update()
-            end
-            return
-        end
-
-        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-        local name = input.KeyCode.Name
-        for _, picker in ipairs(UI_KEYPICKERS) do
-            if picker.Mode == "Toggle" and picker.Value == name and name ~= "None" then
-                picker.Toggled = not picker.Toggled
-                key_picker_do_click(picker)
-                picker:Update()
-            end
-        end
-    end
-
-    local function on_input_ended(_input)
-        for _, picker in ipairs(UI_KEYPICKERS) do
-            picker:Update()
-        end
-    end
-
-    cheat.utility.track_connection(UserInputService.InputBegan:Connect(on_input_began))
-    cheat.utility.track_connection(UserInputService.InputEnded:Connect(on_input_ended))
-end
 
 ----------------------------------------------------------------------
 -- GROUPBOX / TAB WRAPPERS
@@ -763,14 +503,7 @@ end
 
 function BOX_METHODS.AddToggle(self, idx, info)
     local raw = rawget(self, "_raw")
-    local toggle = raw:AddToggle(idx, info)
-    -- Add AddKeyPicker directly to the toggle instance so it bypasses the
-    -- library's __namecall metamethod which would otherwise call the original
-    -- Funcs.AddKeyPicker instead of our compat implementation.
-    toggle.AddKeyPicker = function(_, ...)
-        return compat_add_key_picker(toggle, ...)
-    end
-    return toggle
+    return raw:AddToggle(idx, info)
 end
 
 function BOX_METHODS.AddDependencyBox(self)
@@ -786,9 +519,6 @@ function BOX_METHODS.SetupDependencies(self, dependencies)
     return self
 end
 
-function BOX_METHODS.AddKeyPicker(self, idx, info)
-    return compat_add_key_picker(self, idx, info)
-end
 
 function BOX_METHODS.AddLeftGroupbox(self, name)
     return wrap_box(rawget(self, "_raw"):AddLeftGroupbox(name), "groupbox")
@@ -8702,9 +8432,12 @@ local keybind_box = ui.tabs.config:AddRightGroupbox('KEYBINDS')
 do
     local rows = {}
 
-    for _, picker in ipairs(UI_KEYPICKERS) do
-        local label = keybind_box:AddLabel(picker.Text)
-        rows[#rows + 1] = { picker = picker, label = label, text = "" }
+    -- Collect keypickers from Options (library stores them there)
+    for idx, opt in pairs(Options) do
+        if opt and opt.Type == 'KeyPicker' then
+            local label = keybind_box:AddLabel(opt.Text or idx)
+            rows[#rows + 1] = { picker = opt, label = label, text = "" }
+        end
     end
 
     local function set_label(label, text)
