@@ -1238,7 +1238,7 @@ do
             local Container = Library.KeybindContainer;
             local Layout = Container:FindFirstChildWhichIsA('UIListLayout');
             if Layout and Layout.AbsoluteSize.Y > 0 then
-                local NewHeight = 20 + Layout.AbsoluteSize.Y + 12;
+                local NewHeight = 20 + Layout.AbsoluteSize.Y + 8;
                 Library.KeybindFrame.Size = UDim2.new(0, Library.KeybindFrame.Size.X.Offset, 0, NewHeight);
             end
         end);
@@ -3014,14 +3014,14 @@ do
     Library:Create('UIListLayout', {
         FillDirection = Enum.FillDirection.Vertical;
         SortOrder = Enum.SortOrder.LayoutOrder;
-        Padding = UDim.new(0, 4);
+        Padding = UDim.new(0, 2);
         Parent = KeybindContainer;
     });
 
     Library:Create('UIPadding', {
-        PaddingLeft = UDim.new(0, 6),
-        PaddingRight = UDim.new(0, 6),
-        PaddingBottom = UDim.new(0, 6),
+        PaddingLeft = UDim.new(0, 4),
+        PaddingRight = UDim.new(0, 4),
+        PaddingBottom = UDim.new(0, 4),
         Parent = KeybindContainer,
     })
 

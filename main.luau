@@ -533,6 +533,15 @@ local function compat_add_key_picker(self, idx, info)
     local parent_label = rawget(self, "TextLabel")
     local container = rawget(self, "Container")
 
+    -- Unwrap boxed groupboxes: the wrapper stores the real object in _raw
+    if not parent_label and not container then
+        local raw = rawget(self, "_raw")
+        if raw then
+            parent_label = raw.TextLabel
+            container = raw.Container
+        end
+    end
+
     local picker = {
         Value = info.Default or "None",
         Toggled = false,
@@ -611,8 +620,8 @@ local function compat_add_key_picker(self, idx, info)
 
     picker.DisplayLabel = display
 
-    -- Keybind list entry (only when the parent is a toggle/label).
-    if not picker.NoUI and Library.KeybindContainer and parent_label then
+    -- Keybind list entry (when the parent is a toggle/label or a groupbox).
+    if not picker.NoUI and Library.KeybindContainer and (parent_label or container) then
         local list_label = Library:CreateLabel({
             Size = UDim2.new(1, 0, 0, 15),
             TextSize = 13,
