@@ -1225,11 +1225,23 @@ do
         local KeyLabel = Library:CreateLabel({
             Text = string.format('[%s] %s', KeyPicker.Value, Info.Text or 'Keybind');
             TextSize = 13;
+            TextXAlignment = Enum.TextXAlignment.Left;
             TextColor3 = Library.FontColor;
+            Size = UDim2.new(1, 0, 0, 20);
             Parent = Library.KeybindContainer;
         }, true);
 
         Library:AddToRegistry(KeyLabel, { TextColor3 = 'FontColor' });
+
+        -- Resize the keybind frame to accommodate the new label
+        task.defer(function()
+            local Container = Library.KeybindContainer;
+            local Layout = Container:FindFirstChildWhichIsA('UIListLayout');
+            if Layout and Layout.AbsoluteSize.Y > 0 then
+                local NewHeight = 20 + Layout.AbsoluteSize.Y + 12;
+                Library.KeybindFrame.Size = UDim2.new(0, Library.KeybindFrame.Size.X.Offset, 0, NewHeight);
+            end
+        end);
 
         -- Key capture: click the label to bind a new key
         local Picking = false;
@@ -2973,7 +2985,7 @@ do
         BackgroundTransparency = 1;
         BorderSizePixel = 0;
         Position = UDim2.new(0, 10, 0.5, 0);
-        Size = UDim2.new(0, 200, 0, 20);
+        Size = UDim2.new(0, 220, 0, 20);
         Visible = false;
         ZIndex = 100;
         Parent = ScreenGui;
@@ -3002,11 +3014,14 @@ do
     Library:Create('UIListLayout', {
         FillDirection = Enum.FillDirection.Vertical;
         SortOrder = Enum.SortOrder.LayoutOrder;
+        Padding = UDim.new(0, 4);
         Parent = KeybindContainer;
     });
 
     Library:Create('UIPadding', {
-        PaddingLeft = UDim.new(0, 0),
+        PaddingLeft = UDim.new(0, 6),
+        PaddingRight = UDim.new(0, 6),
+        PaddingBottom = UDim.new(0, 6),
         Parent = KeybindContainer,
     })
 
